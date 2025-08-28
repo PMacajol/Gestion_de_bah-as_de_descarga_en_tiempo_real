@@ -1,0 +1,33 @@
+name: bahias_descarga_system
+description: Sistema de gestión de bahías de descarga
+
+publish_to: "none"
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.0.5
+  syncfusion_flutter_charts: ^30.2.7
+  syncfusion_flutter_core: ^30.2.7
+  intl: ^0.20.2
+  pdf: ^3.10.9 # Versión actual al 2025; verifica pub.dev para updates
+  path_provider: ^2.1.2
+  path_provider_windows:
+  path_provider_android:
+  path_provider_ios:
+  path_provider_linux:
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+  #  - assets/
