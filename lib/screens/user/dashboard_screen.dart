@@ -21,6 +21,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   TipoBahia? _filtroTipo;
   EstadoBahia? _filtroEstado;
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _statsScrollController = ScrollController();
+  int _loadedBahias = 20;
 
   @override
   void initState() {
@@ -32,6 +34,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _statsScrollController.dispose();
     super.dispose();
   }
 
@@ -73,94 +76,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       body: Column(
         children: [
-          // Tarjetas de estadísticas
-          _buildStatsRow(totalBahias, bahiasLibres, bahiasOcupadas,
+          // Tarjetas de estadísticas con scroll horizontal en móvil
+          _buildResponsiveStatsRow(totalBahias, bahiasLibres, bahiasOcupadas,
               bahiasReservadas, bahiasMantenimiento),
 
-          // Barra de búsqueda y filtros
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      labelText: 'Buscar bahía...',
-                      prefixIcon: const Icon(Icons.search),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _searchController.clear();
-                                bahiaProvider.limpiarBusqueda();
-                              },
-                            )
-                          : null,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    onChanged: (value) {
-                      bahiaProvider.buscarBahias(value);
-                    },
-                  ),
-                ),
-                const SizedBox(width: 16),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.filter_list),
-                  onSelected: (value) {
-                    setState(() {
-                      switch (value) {
-                        case 'todas':
-                          _filtroTipo = null;
-                          _filtroEstado = null;
-                          break;
-                        case 'libres':
-                          _filtroEstado = EstadoBahia.libre;
-                          break;
-                        case 'ocupadas':
-                          _filtroEstado = EstadoBahia.enUso;
-                          break;
-                        case 'reservadas':
-                          _filtroEstado = EstadoBahia.reservada;
-                          break;
-                        case 'mantenimiento':
-                          _filtroEstado = EstadoBahia.mantenimiento;
-                          break;
-                      }
-                    });
-                  },
-                  itemBuilder: (BuildContext context) {
-                    return [
-                      const PopupMenuItem<String>(
-                        value: 'todas',
-                        child: Text('Todas las bahías'),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'libres',
-                        child: Text('Solo libres'),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'ocupadas',
-                        child: Text('Solo ocupadas'),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'reservadas',
-                        child: Text('Solo reservadas'),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'mantenimiento',
-                        child: Text('Solo mantenimiento'),
-                      ),
-                    ];
-                  },
-                ),
-              ],
-            ),
-          ),
+          // Barra de búsqueda y filtros optimizada para móvil
+          _buildMobileSearchFilters(bahiaProvider),
 
-          // Lista de bahías
+          // Lista de bahías con lazy loading
           Expanded(
             child: _buildBahiasGrid(bahiaProvider, bahias),
           ),
@@ -169,57 +92,158 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildStatsRow(
+  Widget _buildResponsiveStatsRow(
       int total, int libres, int ocupadas, int reservadas, int mantenimiento) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: [
-          _buildStatCard(
-              'Total Bahías', total, Icons.local_parking, Colors.blue),
-          _buildStatCard('Libres', libres, Icons.check_circle, Colors.green),
-          _buildStatCard(
-              'Ocupadas', ocupadas, Icons.do_not_disturb, Colors.red),
-          _buildStatCard(
-              'Reservadas', reservadas, Icons.access_time, Colors.orange),
-          _buildStatCard(
-              'Mantenimiento', mantenimiento, Icons.build, Colors.blueGrey),
-        ],
-      ),
-    );
+    if (Responsive.isMobile(context)) {
+      return SizedBox(
+        height: 120,
+        child: ListView(
+          controller: _statsScrollController,
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildStatCard('Total', total, Icons.local_parking, Colors.blue),
+            _buildStatCard('Libres', libres, Icons.check_circle, Colors.green),
+            _buildStatCard(
+                'Ocupadas', ocupadas, Icons.do_not_disturb, Colors.red),
+            _buildStatCard(
+                'Reservadas', reservadas, Icons.access_time, Colors.orange),
+            _buildStatCard(
+                'Mant.', mantenimiento, Icons.build, Colors.blueGrey),
+          ],
+        ),
+      );
+    } else {
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 16, // ✅ corregido
+          children: [
+            _buildStatCard(
+                'Total Bahías', total, Icons.local_parking, Colors.blue),
+            _buildStatCard('Libres', libres, Icons.check_circle, Colors.green),
+            _buildStatCard(
+                'Ocupadas', ocupadas, Icons.do_not_disturb, Colors.red),
+            _buildStatCard(
+                'Reservadas', reservadas, Icons.access_time, Colors.orange),
+            _buildStatCard(
+                'Mantenimiento', mantenimiento, Icons.build, Colors.blueGrey),
+          ],
+        ),
+      );
+    }
   }
 
   Widget _buildStatCard(String title, int value, IconData icon, Color color) {
+    final isMobile = Responsive.isMobile(context);
     return Card(
       elevation: 4,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding:
+            isMobile ? const EdgeInsets.all(8.0) : const EdgeInsets.all(16.0),
         child: SizedBox(
-          width: 150,
+          width: isMobile ? 100 : 150,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Icon(icon, color: color),
+                  Icon(icon, color: color, size: isMobile ? 20 : 24),
                   const Spacer(),
                   Text(
                     value.toString(),
-                    style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: isMobile ? 18 : 24,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               Text(
                 title,
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
+                style: TextStyle(
+                  fontSize: isMobile ? 12 : 14,
+                  color: Colors.grey,
+                ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildMobileSearchFilters(BahiaProvider bahiaProvider) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          // Barra de búsqueda
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              labelText: 'Buscar bahía...',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        bahiaProvider.limpiarBusqueda();
+                      },
+                    )
+                  : null,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onChanged: (value) {
+              bahiaProvider.buscarBahias(value);
+            },
+          ),
+          const SizedBox(height: 12),
+
+          // Selector de filtros para móvil
+          DropdownButtonFormField<EstadoBahia?>(
+            value: _filtroEstado,
+            decoration: InputDecoration(
+              labelText: 'Filtrar por estado',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            items: [
+              const DropdownMenuItem<EstadoBahia?>(
+                value: null,
+                child: Text('Todos los estados'),
+              ),
+              DropdownMenuItem<EstadoBahia?>(
+                value: EstadoBahia.libre,
+                child: Text(_getEstadoBahiaText(EstadoBahia.libre)),
+              ),
+              DropdownMenuItem<EstadoBahia?>(
+                value: EstadoBahia.enUso,
+                child: Text(_getEstadoBahiaText(EstadoBahia.enUso)),
+              ),
+              DropdownMenuItem<EstadoBahia?>(
+                value: EstadoBahia.reservada,
+                child: Text(_getEstadoBahiaText(EstadoBahia.reservada)),
+              ),
+              DropdownMenuItem<EstadoBahia?>(
+                value: EstadoBahia.mantenimiento,
+                child: Text(_getEstadoBahiaText(EstadoBahia.mantenimiento)),
+              ),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _filtroEstado = value;
+              });
+            },
+          ),
+        ],
       ),
     );
   }
@@ -236,32 +260,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
           bahiasFiltradas.where((b) => b.estado == _filtroEstado).toList();
     }
 
-    return GridView.builder(
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: Responsive.isDesktop(context) ? 5 : 3,
-        childAspectRatio: 0.9,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-      ),
-      padding: const EdgeInsets.all(16),
-      itemCount: bahiasFiltradas.length,
-      itemBuilder: (context, index) {
-        final bahia = bahiasFiltradas[index];
-        return _buildBahiaCard(bahia, bahiaProvider);
+    // Lazy loading para móviles
+    final displayedBahias = _loadedBahias < bahiasFiltradas.length
+        ? bahiasFiltradas.sublist(0, _loadedBahias)
+        : bahiasFiltradas;
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (scrollNotification) {
+        if (scrollNotification is ScrollEndNotification &&
+            scrollNotification.metrics.extentAfter == 0 &&
+            _loadedBahias < bahiasFiltradas.length) {
+          setState(() {
+            _loadedBahias += 20;
+          });
+        }
+        return false;
       },
+      child: GridView.builder(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: Responsive.isDesktop(context)
+              ? 5
+              : Responsive.isTablet(context)
+                  ? 3
+                  : 2,
+          childAspectRatio: 0.9,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+        ),
+        padding: const EdgeInsets.all(16),
+        itemCount: displayedBahias.length +
+            (_loadedBahias < bahiasFiltradas.length ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == displayedBahias.length) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final bahia = displayedBahias[index];
+          return _buildBahiaCard(bahia, bahiaProvider);
+        },
+      ),
     );
   }
 
   Widget _buildBahiaCard(Bahia bahia, BahiaProvider bahiaProvider) {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: bahia.colorEstado.withOpacity(0.3), width: 2),
-      ),
-      child: InkWell(
-        onTap: () => _mostrarOpcionesBahia(context, bahia, bahiaProvider),
-        borderRadius: BorderRadius.circular(12),
+    return GestureDetector(
+      onTap: () => _mostrarOpcionesBahia(context, bahia, bahiaProvider),
+      onLongPress: () => _mostrarDetallesCompletosBahia(context, bahia),
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: bahia.colorEstado.withOpacity(0.3), width: 2),
+        ),
         child: Container(
           decoration: BoxDecoration(
             color: bahia.colorEstado.withOpacity(0.1),
@@ -289,8 +338,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               // Número de bahía
               Text(
                 'Bahía ${bahia.numero}',
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
                 textAlign: TextAlign.center,
               ),
 
@@ -305,9 +356,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Text(
                 bahia.nombreEstado,
                 style: TextStyle(
-                    fontSize: 12,
-                    color: bahia.colorEstado,
-                    fontWeight: FontWeight.bold),
+                  fontSize: 12,
+                  color: bahia.colorEstado,
+                  fontWeight: FontWeight.bold,
+                ),
                 textAlign: TextAlign.center,
               ),
 
@@ -317,7 +369,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Text(
                   bahia.reservadaPor!,
                   style: const TextStyle(
-                      fontSize: 10, fontStyle: FontStyle.italic),
+                    fontSize: 10,
+                    fontStyle: FontStyle.italic,
+                  ),
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                 ),
@@ -494,101 +548,117 @@ class _DashboardScreenState extends State<DashboardScreen> {
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Bahía ${bahia.numero} - ${bahia.nombreTipo}',
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Estado: ${bahia.nombreEstado}',
-                style: TextStyle(
-                    fontSize: 16,
-                    color: bahia.colorEstado,
-                    fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-
-              // OPCIONES PARA USUARIOS NORMALES
-              if (bahia.estado == EstadoBahia.libre) ...[
-                _buildBotonOpcion(
-                  'Reservar Bahía',
-                  Icons.calendar_today,
-                  Colors.blue,
-                  () => _reservarBahia(context, bahia),
+        return SafeArea(
+          child: Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Barra de arrastre para móvil
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 16),
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2.5),
+                  ),
                 ),
-              ],
-
-              // OPCIONES SOLO PARA ADMINISTRADORES
-
-              if (bahia.estado == EstadoBahia.libre) ...[
-                const SizedBox(height: 8),
-                _buildBotonOpcion(
-                  'Poner en Uso',
-                  Icons.local_shipping,
-                  Colors.orange,
-                  () => _ponerEnUso(context, bahia, bahiaProvider),
+                Text(
+                  'Bahía ${bahia.numero} - ${bahia.nombreTipo}',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                _buildBotonOpcion(
-                  'Poner en Mantenimiento',
-                  Icons.build,
-                  Colors.blueGrey,
-                  () => _ponerEnMantenimiento(context, bahia, bahiaProvider),
+                Text(
+                  'Estado: ${bahia.nombreEstado}',
+                  style: TextStyle(
+                      fontSize: 16,
+                      color: bahia.colorEstado,
+                      fontWeight: FontWeight.bold),
                 ),
-              ],
-              if (bahia.estado == EstadoBahia.mantenimiento) ...[
+                const SizedBox(height: 16),
+
+                // OPCIONES PARA USUARIOS NORMALES
+                if (bahia.estado == EstadoBahia.libre) ...[
+                  _buildBotonOpcion(
+                    'Reservar Bahía',
+                    Icons.calendar_today,
+                    Colors.blue,
+                    () => _reservarBahia(context, bahia),
+                  ),
+                ],
+
+                // OPCIONES SOLO PARA ADMINISTRADORES
+
+                if (bahia.estado == EstadoBahia.libre) ...[
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Uso',
+                    Icons.local_shipping,
+                    Colors.orange,
+                    () => _ponerEnUso(context, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Mantenimiento',
+                    Icons.build,
+                    Colors.blueGrey,
+                    () => _ponerEnMantenimiento(context, bahia, bahiaProvider),
+                  ),
+                ],
+                if (bahia.estado == EstadoBahia.mantenimiento) ...[
+                  _buildBotonOpcion(
+                    'Liberar de Mantenimiento',
+                    Icons.check_circle,
+                    Colors.green,
+                    () =>
+                        _liberarDeMantenimiento(context, bahia, bahiaProvider),
+                  ),
+                ],
+                if (bahia.estado == EstadoBahia.reservada) ...[
+                  _buildBotonOpcion(
+                    'Cancelar Reserva',
+                    Icons.cancel,
+                    Colors.red,
+                    () => _cancelarReservaBahia(context, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Uso',
+                    Icons.local_shipping,
+                    Colors.orange,
+                    () => _ponerEnUso(context, bahia, bahiaProvider),
+                  ),
+                ],
+                if (bahia.estado == EstadoBahia.enUso) ...[
+                  _buildBotonOpcion(
+                    'Liberar Bahía',
+                    Icons.check_circle,
+                    Colors.green,
+                    () => _liberarBahia(context, bahia, bahiaProvider),
+                  ),
+                ],
+
+                const SizedBox(height: 16),
                 _buildBotonOpcion(
-                  'Liberar de Mantenimiento',
-                  Icons.check_circle,
-                  Colors.green,
-                  () => _liberarDeMantenimiento(context, bahia, bahiaProvider),
-                ),
-              ],
-              if (bahia.estado == EstadoBahia.reservada) ...[
-                _buildBotonOpcion(
-                  'Cancelar Reserva',
-                  Icons.cancel,
-                  Colors.red,
-                  () => _cancelarReservaBahia(context, bahia, bahiaProvider),
+                  'Ver Detalles',
+                  Icons.info,
+                  Colors.grey,
+                  () => _mostrarDetallesCompletosBahia(context, bahia),
                 ),
                 const SizedBox(height: 8),
                 _buildBotonOpcion(
-                  'Poner en Uso',
-                  Icons.local_shipping,
-                  Colors.orange,
-                  () => _ponerEnUso(context, bahia, bahiaProvider),
+                  'Cancelar',
+                  Icons.close,
+                  Colors.grey,
+                  () => Navigator.pop(context),
                 ),
+                const SizedBox(height: 16),
               ],
-              if (bahia.estado == EstadoBahia.enUso) ...[
-                _buildBotonOpcion(
-                  'Liberar Bahía',
-                  Icons.check_circle,
-                  Colors.green,
-                  () => _liberarBahia(context, bahia, bahiaProvider),
-                ),
-              ],
-
-              const SizedBox(height: 16),
-              _buildBotonOpcion(
-                'Ver Detalles',
-                Icons.info,
-                Colors.grey,
-                () => _mostrarDetallesCompletosBahia(context, bahia),
-              ),
-              const SizedBox(height: 8),
-              _buildBotonOpcion(
-                'Cancelar',
-                Icons.close,
-                Colors.grey,
-                () => Navigator.pop(context),
-              ),
-            ],
+            ),
           ),
         );
       },

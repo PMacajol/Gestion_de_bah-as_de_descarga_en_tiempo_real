@@ -12,10 +12,11 @@ import 'package:intl/intl.dart';
 import 'package:bahias_descarga_system/models/reserva_model.dart';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
+import 'dart:math';
+import 'package:flutter/material.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({Key? key}) : super(key: key);
@@ -28,6 +29,8 @@ class _AdminDashboardState extends State<AdminDashboard>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   int _selectedIndex = 0;
+  final ScrollController _scrollController = ScrollController();
+  int _loadedItems = 20;
 
   @override
   void initState() {
@@ -38,11 +41,22 @@ class _AdminDashboardState extends State<AdminDashboard>
         _selectedIndex = _tabController.index;
       });
     });
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels ==
+          _scrollController.position.maxScrollExtent) {
+        // Cargar más elementos cuando se llega al final
+        setState(() {
+          _loadedItems += 20;
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -106,7 +120,7 @@ class _AdminDashboardState extends State<AdminDashboard>
       body: Column(
         children: [
           // Tarjetas de estadísticas
-          _buildStatsRow(totalBahias, bahiasLibres, bahiasOcupadas,
+          _buildResponsiveStatsRow(totalBahias, bahiasLibres, bahiasOcupadas,
               bahiasReservadas, bahiasMantenimiento),
 
           // Pestañas
@@ -118,12 +132,19 @@ class _AdminDashboardState extends State<AdminDashboard>
               indicatorColor: AppColors.primary,
               labelColor: AppColors.primary,
               unselectedLabelColor: Colors.grey,
-              tabs: const [
-                Tab(icon: Icon(Icons.dashboard), text: 'Dashboard'),
-                Tab(icon: Icon(Icons.local_shipping), text: 'Bahías'),
-                Tab(icon: Icon(Icons.calendar_today), text: 'Reservas'),
-                Tab(icon: Icon(Icons.analytics), text: 'Reportes'),
-              ],
+              tabs: Responsive.isMobile(context)
+                  ? const [
+                      Tab(icon: Icon(Icons.dashboard)),
+                      Tab(icon: Icon(Icons.local_shipping)),
+                      Tab(icon: Icon(Icons.calendar_today)),
+                      Tab(icon: Icon(Icons.analytics)),
+                    ]
+                  : const [
+                      Tab(icon: Icon(Icons.dashboard), text: 'Dashboard'),
+                      Tab(icon: Icon(Icons.local_shipping), text: 'Bahías'),
+                      Tab(icon: Icon(Icons.calendar_today), text: 'Reservas'),
+                      Tab(icon: Icon(Icons.analytics), text: 'Reportes'),
+                    ],
             ),
           ),
 
@@ -148,6 +169,117 @@ class _AdminDashboardState extends State<AdminDashboard>
               backgroundColor: AppColors.primary,
             )
           : null,
+      bottomNavigationBar: Responsive.isMobile(context)
+          ? BottomNavigationBar(
+              currentIndex: _selectedIndex,
+              onTap: (index) {
+                setState(() {
+                  _selectedIndex = index;
+                  _tabController.animateTo(index);
+                });
+              },
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.dashboard),
+                  label: 'Dashboard',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.local_shipping),
+                  label: 'Bahías',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.calendar_today),
+                  label: 'Reservas',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.analytics),
+                  label: 'Reportes',
+                ),
+              ],
+            )
+          : null,
+    );
+  }
+
+  Widget _buildResponsiveStatsRow(
+      int total, int libres, int ocupadas, int reservadas, int mantenimiento) {
+    if (Responsive.isMobile(context)) {
+      return SizedBox(
+        height: 120,
+        child: ListView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildStatCard('Total', total, Icons.local_parking, Colors.blue),
+            _buildStatCard('Libres', libres, Icons.check_circle, Colors.green),
+            _buildStatCard(
+                'Ocupadas', ocupadas, Icons.do_not_disturb, Colors.red),
+            _buildStatCard(
+                'Reservadas', reservadas, Icons.access_time, Colors.orange),
+            _buildStatCard(
+                'Mant.', mantenimiento, Icons.build, Colors.blueGrey),
+          ],
+        ),
+      );
+    } else {
+      return Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            _buildStatCard(
+                'Total Bahías', total, Icons.local_parking, Colors.blue),
+            _buildStatCard('Libres', libres, Icons.check_circle, Colors.green),
+            _buildStatCard(
+                'Ocupadas', ocupadas, Icons.do_not_disturb, Colors.red),
+            _buildStatCard(
+                'Reservadas', reservadas, Icons.access_time, Colors.orange),
+            _buildStatCard(
+                'Mantenimiento', mantenimiento, Icons.build, Colors.blueGrey),
+          ],
+        ),
+      );
+    }
+  }
+
+  Widget _buildStatCard(String title, int value, IconData icon, Color color) {
+    final isMobile = Responsive.isMobile(context);
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding:
+            isMobile ? const EdgeInsets.all(8.0) : const EdgeInsets.all(16.0),
+        child: SizedBox(
+          width: isMobile ? 100 : 150,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: color, size: isMobile ? 20 : 24),
+                  const Spacer(),
+                  Text(
+                    value.toString(),
+                    style: TextStyle(
+                      fontSize: isMobile ? 18 : 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: isMobile ? 12 : 14,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -426,61 +558,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _buildStatsRow(
-      int total, int libres, int ocupadas, int reservadas, int mantenimiento) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 16,
-        children: [
-          _buildStatCard(
-              'Total Bahías', total, Icons.local_parking, Colors.blue),
-          _buildStatCard('Libres', libres, Icons.check_circle, Colors.green),
-          _buildStatCard(
-              'Ocupadas', ocupadas, Icons.do_not_disturb, Colors.red),
-          _buildStatCard(
-              'Reservadas', reservadas, Icons.access_time, Colors.orange),
-          _buildStatCard(
-              'Mantenimiento', mantenimiento, Icons.build, Colors.blueGrey),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatCard(String title, int value, IconData icon, Color color) {
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: SizedBox(
-          width: 150,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, color: color),
-                  const Spacer(),
-                  Text(
-                    value.toString(),
-                    style: const TextStyle(
-                        fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildDashboardTab(List<Bahia> bahias, List<Reserva> reservas) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -503,6 +580,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Widget _buildUsoPorTipoChart(List<Bahia> bahias) {
+    final bool isMobile = Responsive.isMobile(context);
     final datos = [
       _crearDatoChart(
           'Libres',
@@ -538,7 +616,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           borderRadius: BorderRadius.circular(20),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(20.0),
+          padding: EdgeInsets.all(isMobile ? 12.0 : 20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -551,7 +629,7 @@ class _AdminDashboardState extends State<AdminDashboard>
               ),
               const SizedBox(height: 16),
               SizedBox(
-                height: 250,
+                height: isMobile ? 180 : 250,
                 child: SfCircularChart(
                   margin: EdgeInsets.zero,
                   palette: [
@@ -615,7 +693,6 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   ChartData _crearDatoChart(String x, int y, [Color? color]) {
-    // Color opcional
     return ChartData(x, y, color);
   }
 
@@ -771,17 +848,32 @@ class _AdminDashboardState extends State<AdminDashboard>
           ),
           const SizedBox(height: 16),
           Expanded(
-            child: GridView.builder(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 4, // Más columnas
-                childAspectRatio: 0.8, // Más compacto
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: bahias.length,
-              itemBuilder: (context, index) {
-                final bahia = bahias[index];
-                return _buildBahiaAdminCard(bahia, bahiaProvider);
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Ajustar el número de columnas basado en el ancho disponible
+                double width = constraints.maxWidth;
+                int crossAxisCount;
+                if (width > 600) {
+                  crossAxisCount = 4;
+                } else if (width > 400) {
+                  crossAxisCount = 3;
+                } else {
+                  crossAxisCount = 2;
+                }
+
+                return GridView.builder(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: crossAxisCount,
+                    childAspectRatio: 0.8,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
+                  itemCount: bahias.length,
+                  itemBuilder: (context, index) {
+                    final bahia = bahias[index];
+                    return _buildBahiaAdminCard(bahia, bahiaProvider);
+                  },
+                );
               },
             ),
           ),
@@ -796,100 +888,116 @@ class _AdminDashboardState extends State<AdminDashboard>
       context: context,
       isScrollControlled: true,
       builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Bahía ${bahia.numero} - ${bahia.nombreTipo}',
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Estado: ${bahia.nombreEstado}',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: bahia.colorEstado,
-                  fontWeight: FontWeight.bold,
+        return SafeArea(
+          child: Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Barra de arrastre para móvil
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 16),
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2.5),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                Text(
+                  'Bahía ${bahia.numero} - ${bahia.nombreTipo}',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Estado: ${bahia.nombreEstado}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: bahia.colorEstado,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
 
-              // OPCIONES SEGÚN ESTADO ACTUAL
-              if (bahia.estado == EstadoBahia.libre) ...[
+                // OPCIONES SEGÚN ESTADO ACTUAL
+                if (bahia.estado == EstadoBahia.libre) ...[
+                  _buildBotonOpcion(
+                    'Reservar Bahía',
+                    Icons.calendar_today,
+                    Colors.blue,
+                    () => _reservarBahia(context, bahia),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Uso',
+                    Icons.local_shipping,
+                    Colors.orange,
+                    () => _ponerEnUso(context, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Mantenimiento',
+                    Icons.build,
+                    Colors.blueGrey,
+                    () => _ponerEnMantenimiento(context, bahia, bahiaProvider),
+                  ),
+                ],
+
+                if (bahia.estado == EstadoBahia.mantenimiento) ...[
+                  _buildBotonOpcion(
+                    'Liberar de Mantenimiento',
+                    Icons.check_circle,
+                    Colors.green,
+                    () =>
+                        _liberarDeMantenimiento(context, bahia, bahiaProvider),
+                  ),
+                ],
+
+                if (bahia.estado == EstadoBahia.reservada) ...[
+                  _buildBotonOpcion(
+                    'Cancelar Reserva',
+                    Icons.cancel,
+                    Colors.red,
+                    () => _cancelarReservaBahia(context, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Uso',
+                    Icons.local_shipping,
+                    Colors.orange,
+                    () => _ponerEnUso(context, bahia, bahiaProvider),
+                  ),
+                ],
+
+                if (bahia.estado == EstadoBahia.enUso) ...[
+                  _buildBotonOpcion(
+                    'Liberar Bahía',
+                    Icons.check_circle,
+                    Colors.green,
+                    () => _liberarBahia(context, bahia, bahiaProvider),
+                  ),
+                ],
+
+                const SizedBox(height: 16),
                 _buildBotonOpcion(
-                  'Reservar Bahía',
-                  Icons.calendar_today,
-                  Colors.blue,
-                  () => _reservarBahia(context, bahia),
+                  'Ver Detalles',
+                  Icons.info,
+                  Colors.grey,
+                  () => _mostrarDetallesCompletosBahia(context, bahia),
                 ),
                 const SizedBox(height: 8),
                 _buildBotonOpcion(
-                  'Poner en Uso',
-                  Icons.local_shipping,
-                  Colors.orange,
-                  () => _ponerEnUso(context, bahia, bahiaProvider),
+                  'Cancelar',
+                  Icons.close,
+                  Colors.grey,
+                  () => Navigator.pop(context),
                 ),
-                const SizedBox(height: 8),
-                _buildBotonOpcion(
-                  'Poner en Mantenimiento',
-                  Icons.build,
-                  Colors.blueGrey,
-                  () => _ponerEnMantenimiento(context, bahia, bahiaProvider),
-                ),
+                const SizedBox(height: 16),
               ],
-
-              if (bahia.estado == EstadoBahia.mantenimiento) ...[
-                _buildBotonOpcion(
-                  'Liberar de Mantenimiento',
-                  Icons.check_circle,
-                  Colors.green,
-                  () => _liberarDeMantenimiento(context, bahia, bahiaProvider),
-                ),
-              ],
-
-              if (bahia.estado == EstadoBahia.reservada) ...[
-                _buildBotonOpcion(
-                  'Cancelar Reserva',
-                  Icons.cancel,
-                  Colors.red,
-                  () => _cancelarReservaBahia(context, bahia, bahiaProvider),
-                ),
-                const SizedBox(height: 8),
-                _buildBotonOpcion(
-                  'Poner en Uso',
-                  Icons.local_shipping,
-                  Colors.orange,
-                  () => _ponerEnUso(context, bahia, bahiaProvider),
-                ),
-              ],
-
-              if (bahia.estado == EstadoBahia.enUso) ...[
-                _buildBotonOpcion(
-                  'Liberar Bahía',
-                  Icons.check_circle,
-                  Colors.green,
-                  () => _liberarBahia(context, bahia, bahiaProvider),
-                ),
-              ],
-
-              const SizedBox(height: 16),
-              _buildBotonOpcion(
-                'Ver Detalles',
-                Icons.info,
-                Colors.grey,
-                () => _mostrarDetallesCompletosBahia(context, bahia),
-              ),
-              const SizedBox(height: 8),
-              _buildBotonOpcion(
-                'Cancelar',
-                Icons.close,
-                Colors.grey,
-                () => Navigator.pop(context),
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -897,15 +1005,15 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Widget _buildBahiaAdminCard(Bahia bahia, BahiaProvider bahiaProvider) {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: bahia.colorEstado.withOpacity(0.3), width: 2),
-      ),
-      child: InkWell(
-        onTap: () => _mostrarOpcionesBahia(context, bahia, bahiaProvider),
-        borderRadius: BorderRadius.circular(12),
+    return GestureDetector(
+      onTap: () => _mostrarOpcionesBahia(context, bahia, bahiaProvider),
+      onLongPress: () => _mostrarDetallesCompletosBahia(context, bahia),
+      child: Card(
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: bahia.colorEstado.withOpacity(0.3), width: 2),
+        ),
         child: Container(
           decoration: BoxDecoration(
             color: bahia.colorEstado.withOpacity(0.1),
@@ -993,10 +1101,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  // EN: lib/screens/admin/admin_dashboard.dart
-// BUSCAR: Widget _buildReservasTab(ReservaProvider reservaProvider, List<Reserva> reservas) {
-// REEMPLAZAR todo el método con:
-
   Widget _buildReservasTab(
       ReservaProvider reservaProvider, List<Reserva> reservas) {
     final searchController = TextEditingController();
@@ -1064,8 +1168,13 @@ class _AdminDashboardState extends State<AdminDashboard>
           // Lista de reservas
           Expanded(
             child: ListView.builder(
-              itemCount: reservas.length,
+              controller: _scrollController,
+              itemCount: min(_loadedItems + 1, reservas.length),
               itemBuilder: (context, index) {
+                if (index == _loadedItems && _loadedItems < reservas.length) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
                 final reserva = reservas[index];
 
                 // Aplicar filtro
@@ -1132,10 +1241,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       ),
     );
   }
-
-  // EN: lib/screens/admin/admin_dashboard.dart
-// BUSCAR: Widget _buildReservaCard(Reserva reserva, ReservaProvider reservaProvider) {
-// REEMPLAZAR todo el método con:
 
   Widget _buildReservaCard(Reserva reserva, ReservaProvider reservaProvider) {
     return Card(
@@ -1266,10 +1371,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  // EN: lib/screens/admin/admin_dashboard.dart
-// BUSCAR: Widget _buildReportesTab(List<Bahia> bahias, List<Reserva> reservas) {
-// REEMPLAZAR todo el método con:
-
   Widget _buildReportesTab(List<Bahia> bahias, List<Reserva> reservas) {
     final ahora = DateTime.now();
     final inicioDia = DateTime(ahora.year, ahora.month, ahora.day);
@@ -1371,9 +1472,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  // EN: lib/screens/admin/admin_dashboard.dart
-// AGREGAR después del método _buildReportesTab:
-
   Widget _buildMetricaCard(String titulo, int valor, IconData icono) {
     return Expanded(
       child: Card(
@@ -1403,7 +1501,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   Widget _buildGraficoTendencia(List<Reserva> reservas) {
     // Datos de ejemplo para la tendencia
     final datosTendencia = [
-      _crearDatoChart('Lun', 12), // Cambiado a double
+      _crearDatoChart('Lun', 12),
       _crearDatoChart('Mar', 18),
       _crearDatoChart('Mié', 15),
       _crearDatoChart('Jue', 22),
@@ -1503,7 +1601,6 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   Widget _buildOpcionesExportacion(
       BuildContext context, List<Reserva>? reservas) {
-    // Verifica si la lista es nula o vacía
     if (reservas == null || reservas.isEmpty) {
       return Card(
         child: Padding(
@@ -1513,7 +1610,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       );
     }
 
-    // Construye el widget con los botones de exportación
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -1647,9 +1743,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     // Navegar a calendario de reservas
   }
 
-  // EN: lib/screens/admin/admin_dashboard.dart
-// AGREGAR antes del último } de la clase _AdminDashboardState
-
   void _editarReserva(
       BuildContext context, Reserva reserva, ReservaProvider reservaProvider) {
     showDialog(
@@ -1694,9 +1787,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       );
     }
   }
-
-// EN: lib/screens/admin/admin_dashboard.dart
-// AGREGAR antes del último } de la clase _AdminDashboardState
 
   void _generarReporteDiario(List<Reserva> reservas) async {
     final ahora = DateTime.now();
@@ -1833,7 +1923,7 @@ class _AdminDashboardState extends State<AdminDashboard>
 
 class ChartData {
   final String x;
-  final int y; // Cambiado a double como sugiere el comentario
+  final int y;
   final Color? color;
   ChartData(this.x, this.y, [this.color]);
 }
@@ -1870,7 +1960,7 @@ Future<Uint8List> _generatePdf(
             headers: ['ID', 'Bahía', 'Usuario', 'Inicio', 'Fin', 'Estado'],
             data: filteredReservas
                 .map((r) => [
-                      r.id.split('_').last, // Simplifica ID
+                      r.id.split('_').last,
                       r.numeroBahia.toString(),
                       r.usuarioNombre,
                       DateFormat('dd/MM/yyyy HH:mm').format(r.fechaHoraInicio),
