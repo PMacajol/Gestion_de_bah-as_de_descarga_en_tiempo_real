@@ -98,6 +98,38 @@ class ReservaProvider with ChangeNotifier {
     };
   }
 
+  // MÉTODO CANCELAR RESERVA CORREGIDO (ÚNICO)
+  Future<void> cancelarReserva(String reservaId) async {
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final index = _reservas.indexWhere((reserva) => reserva.id == reservaId);
+    if (index != -1) {
+      // USAR copyWith EN LUGAR DE CREAR NUEVA INSTANCIA MANUALMENTE
+      _reservas[index] = _reservas[index].copyWith(estado: 'cancelada');
+      notifyListeners();
+    }
+  }
+
+  Future<void> completarReserva(String reservaId) async {
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final index = _reservas.indexWhere((reserva) => reserva.id == reservaId);
+    if (index != -1) {
+      _reservas[index] = _reservas[index].copyWith(estado: 'completada');
+      notifyListeners();
+    }
+  }
+
+  Future<void> reactivarReserva(String reservaId) async {
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    final index = _reservas.indexWhere((reserva) => reserva.id == reservaId);
+    if (index != -1) {
+      _reservas[index] = _reservas[index].copyWith(estado: 'activa');
+      notifyListeners();
+    }
+  }
+
   List<Reserva> obtenerReservasPorUsuario(String usuarioId) {
     return _reservas
         .where((reserva) => reserva.usuarioId == usuarioId)
@@ -112,27 +144,46 @@ class ReservaProvider with ChangeNotifier {
     return _reservas.where((reserva) => reserva.estaActiva).toList();
   }
 
-  Future<void> cancelarReserva(String reservaId) async {
+  // MÉTODOS ADICIONALES ÚTILES
+  List<Reserva> obtenerReservasCompletadas() {
+    return _reservas.where((reserva) => reserva.estaCompletada).toList();
+  }
+
+  List<Reserva> obtenerReservasCanceladas() {
+    return _reservas.where((reserva) => reserva.estaCancelada).toList();
+  }
+
+  List<Reserva> obtenerReservasPorFecha(DateTime fecha) {
+    return _reservas.where((reserva) {
+      return reserva.fechaHoraInicio.year == fecha.year &&
+          reserva.fechaHoraInicio.month == fecha.month &&
+          reserva.fechaHoraInicio.day == fecha.day;
+    }).toList();
+  }
+
+  Reserva? obtenerReservaPorId(String reservaId) {
+    try {
+      return _reservas.firstWhere((reserva) => reserva.id == reservaId);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<void> actualizarReserva(
+      String reservaId, Reserva reservaActualizada) async {
     await Future.delayed(const Duration(milliseconds: 500));
 
     final index = _reservas.indexWhere((reserva) => reserva.id == reservaId);
     if (index != -1) {
-      _reservas[index] = Reserva(
-        id: _reservas[index].id,
-        bahiaId: _reservas[index].bahiaId,
-        numeroBahia: _reservas[index].numeroBahia,
-        usuarioId: _reservas[index].usuarioId,
-        usuarioNombre: _reservas[index].usuarioNombre,
-        fechaHoraInicio: _reservas[index].fechaHoraInicio,
-        fechaHoraFin: _reservas[index].fechaHoraFin,
-        fechaCreacion: _reservas[index].fechaCreacion,
-        estado: 'cancelada',
-        vehiculoPlaca: _reservas[index].vehiculoPlaca,
-        conductorNombre: _reservas[index].conductorNombre,
-        mercanciaTipo: _reservas[index].mercanciaTipo,
-        observaciones: _reservas[index].observaciones,
-      );
+      _reservas[index] = reservaActualizada;
       notifyListeners();
     }
+  }
+
+  Future<void> eliminarReserva(String reservaId) async {
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    _reservas.removeWhere((reserva) => reserva.id == reservaId);
+    notifyListeners();
   }
 }

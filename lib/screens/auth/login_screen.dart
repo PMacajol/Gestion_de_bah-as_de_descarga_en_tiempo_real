@@ -1,14 +1,9 @@
 import 'package:flutter/material.dart';
-
 import 'package:provider/provider.dart';
-
 import 'package:bahias_descarga_system/providers/auth_provider.dart';
-
-import 'package:bahias_descarga_system/utils/constants.dart';
-
-import 'package:bahias_descarga_system/utils/validators.dart';
-
 import 'package:bahias_descarga_system/models/usuario_model.dart';
+import 'package:bahias_descarga_system/utils/constants.dart';
+import 'package:bahias_descarga_system/utils/validators.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -19,13 +14,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-
   final _emailController = TextEditingController(text: 'admin@empresa.com');
-
   final _passwordController = TextEditingController(text: 'password123');
-
   bool _obscurePassword = true;
-
   bool _isLoading = false;
 
   void _submit() async {
@@ -34,16 +25,33 @@ class _LoginScreenState extends State<LoginScreen> {
 
       try {
         final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
         await authProvider.login(
           _emailController.text,
           _passwordController.text,
         );
 
-        if (authProvider.usuario?.tipo == TipoUsuario.administrador) {
-          Navigator.pushReplacementNamed(context, '/admin');
-        } else {
-          Navigator.pushReplacementNamed(context, '/dashboard');
+        // Redirigir según el tipo de usuario
+        final usuario = authProvider.usuario;
+        if (usuario != null) {
+          switch (usuario.tipo) {
+            case TipoUsuario.administrador:
+              Navigator.pushReplacementNamed(context, '/admin');
+              break;
+            case TipoUsuario.operador:
+              Navigator.pushReplacementNamed(context, '/dashboard');
+              break;
+            case TipoUsuario.planificador:
+              Navigator.pushReplacementNamed(context, '/planificador');
+              break;
+            case TipoUsuario.supervisor:
+              Navigator.pushReplacementNamed(context, '/supervisor');
+              break;
+            case TipoUsuario.administradorTI:
+              Navigator.pushReplacementNamed(context, '/admin-ti');
+              break;
+            default:
+              Navigator.pushReplacementNamed(context, '/dashboard');
+          }
         }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -62,20 +70,17 @@ class _LoginScreenState extends State<LoginScreen> {
         fit: StackFit.expand,
         children: [
           // Fondo de pantalla
-
           Image.network(
             'https://thumbs.dreamstime.com/b/asombroso-exterior-de-un-almac%C3%A9n-moderno-con-bah%C3%ADas-carga-en-azul-y-blanco-la-hora-dorada-ia-generativa-385289866.jpg',
             fit: BoxFit.cover,
           ),
 
           // Overlay oscuro para contraste
-
           Container(color: Colors.black.withOpacity(0.5)),
 
           // Formulario centrado
-
           Padding(
-            padding: const EdgeInsets.all(AppDimensions.paddingLarge),
+            padding: const EdgeInsets.all(16.0),
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 400),
@@ -85,7 +90,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       // Logo redondeado
-
                       CircleAvatar(
                         radius: 50,
                         backgroundColor: Colors.white,
@@ -94,12 +98,11 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: AppDimensions.paddingLarge),
+                      const SizedBox(height: 16),
 
                       // Nombre del sistema
-
                       Text(
-                        AppStrings.appName,
+                        'Sistema de Bahías',
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -107,10 +110,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: AppDimensions.paddingLarge),
+                      const SizedBox(height: 16),
 
                       // Email
-
                       TextFormField(
                         controller: _emailController,
                         decoration: const InputDecoration(
@@ -128,15 +130,22 @@ class _LoginScreenState extends State<LoginScreen> {
                             borderSide: BorderSide(color: Colors.white),
                           ),
                         ),
-                        validator: Validators.validateEmail,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Por favor ingrese su email';
+                          }
+                          if (!value.contains('@')) {
+                            return 'Email inválido';
+                          }
+                          return null;
+                        },
                         keyboardType: TextInputType.emailAddress,
                         style: const TextStyle(color: Colors.white),
                       ),
 
-                      const SizedBox(height: AppDimensions.paddingMedium),
+                      const SizedBox(height: 16),
 
                       // Password
-
                       TextFormField(
                         controller: _passwordController,
                         decoration: InputDecoration(
@@ -167,12 +176,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             },
                           ),
                         ),
-                        validator: Validators.validatePassword,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Por favor ingrese su contraseña';
+                          }
+                          if (value.length < 6) {
+                            return 'La contraseña debe tener al menos 6 caracteres';
+                          }
+                          return null;
+                        },
                         obscureText: _obscurePassword,
                         style: const TextStyle(color: Colors.white),
                       ),
 
-                      const SizedBox(height: AppDimensions.paddingLarge),
+                      const SizedBox(height: 16),
 
                       SizedBox(
                         width: double.infinity,
@@ -184,7 +201,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: AppDimensions.paddingMedium),
+                      const SizedBox(height: 16),
 
                       TextButton(
                         onPressed: () {

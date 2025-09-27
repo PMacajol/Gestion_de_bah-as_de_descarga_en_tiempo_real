@@ -21,6 +21,8 @@ dependencies:
   path_provider_android:
   path_provider_ios:
   path_provider_linux:
+  syncfusion_flutter_calendar: ^30.2.7
+  universal_html: ^2.2.4
 
 dev_dependencies:
   flutter_test:

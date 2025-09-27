@@ -19,9 +19,30 @@ class AuthProvider with ChangeNotifier {
     ),
     Usuario(
       id: '2',
-      email: 'usuario@empresa.com',
-      nombre: 'Juan Pérez',
-      tipo: TipoUsuario.usuario,
+      email: 'operador@empresa.com',
+      nombre: 'Juan Pérez Operador',
+      tipo: TipoUsuario.operador,
+      fechaRegistro: DateTime.now(),
+    ),
+    Usuario(
+      id: '3',
+      email: 'planificador@empresa.com',
+      nombre: 'María García Planificador',
+      tipo: TipoUsuario.planificador,
+      fechaRegistro: DateTime.now(),
+    ),
+    Usuario(
+      id: '4',
+      email: 'supervisor@empresa.com',
+      nombre: 'Carlos López Supervisor',
+      tipo: TipoUsuario.supervisor,
+      fechaRegistro: DateTime.now(),
+    ),
+    Usuario(
+      id: '5',
+      email: 'ti@empresa.com',
+      nombre: 'Ana Rodríguez TI',
+      tipo: TipoUsuario.administradorTI,
       fechaRegistro: DateTime.now(),
     ),
   ];
@@ -60,7 +81,7 @@ class AuthProvider with ChangeNotifier {
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       email: email,
       nombre: nombre,
-      tipo: TipoUsuario.usuario,
+      tipo: TipoUsuario.operador, // Por defecto es operador
       fechaRegistro: DateTime.now(),
     );
 

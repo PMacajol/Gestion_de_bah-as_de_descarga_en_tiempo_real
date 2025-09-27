@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:intl/date_symbol_data_local.dart'; // Añade esta importación
 import 'package:bahias_descarga_system/providers/auth_provider.dart';
 import 'package:bahias_descarga_system/providers/bahia_provider.dart';
 import 'package:bahias_descarga_system/providers/reserva_provider.dart';
@@ -11,7 +12,17 @@ import 'package:bahias_descarga_system/screens/user/profile_screen.dart';
 import 'package:bahias_descarga_system/screens/reports/usage_report_screen.dart';
 import 'package:bahias_descarga_system/screens/admin/admin_dashboard.dart';
 
-void main() {
+// Importar los nuevos dashboards
+import 'package:bahias_descarga_system/screens/user/planificador_dashboard.dart';
+import 'package:bahias_descarga_system/screens/user/supervisor_dashboard.dart';
+import 'package:bahias_descarga_system/screens/user/admin_ti_dashboard.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializar el formato de fechas para español
+  await initializeDateFormatting('es_ES', null);
+
   runApp(const MyApp());
 }
 
@@ -43,13 +54,16 @@ class MyApp extends StatelessWidget {
         ),
         initialRoute: '/login',
         routes: {
-          '/login': (context) => LoginScreen(), // Sin const
-          '/register': (context) => RegisterScreen(), // Sin const
-          '/dashboard': (context) => DashboardScreen(), // Sin const
-          '/reservation': (context) => ReservationScreen(), // Sin const
-          '/profile': (context) => ProfileScreen(), // Sin const
-          '/reports': (context) => UsageReportScreen(), // Sin const
-          '/admin': (context) => AdminDashboard(),
+          '/login': (context) => const LoginScreen(),
+          '/register': (context) => const RegisterScreen(),
+          '/dashboard': (context) => const DashboardScreen(),
+          '/reservation': (context) => const ReservationScreen(),
+          '/profile': (context) => const ProfileScreen(),
+          '/reports': (context) => const UsageReportScreen(),
+          '/admin': (context) => const AdminDashboard(),
+          '/planificador': (context) => const PlanificadorDashboard(),
+          '/supervisor': (context) => const SupervisorDashboard(),
+          '/admin-ti': (context) => const AdminTIDashboard(),
         },
       ),
     );

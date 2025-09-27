@@ -1,4 +1,10 @@
-enum TipoUsuario { administrador, usuario }
+enum TipoUsuario {
+  administrador,
+  operador,
+  planificador,
+  supervisor,
+  administradorTI
+}
 
 class Usuario {
   final String id;
@@ -16,4 +22,8 @@ class Usuario {
   });
 
   bool get esAdministrador => tipo == TipoUsuario.administrador;
+  bool get esOperador => tipo == TipoUsuario.operador;
+  bool get esPlanificador => tipo == TipoUsuario.planificador;
+  bool get esSupervisor => tipo == TipoUsuario.supervisor;
+  bool get esAdministradorTI => tipo == TipoUsuario.administradorTI;
 }

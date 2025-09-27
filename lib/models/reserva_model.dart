@@ -40,6 +40,28 @@ class Reserva {
     return DateFormat('dd/MM/yyyy HH:mm').format(fechaHoraInicio);
   }
 
+  // En reserva_model.dart
+  Reserva copyWith({
+    String? estado,
+    String? observaciones,
+  }) {
+    return Reserva(
+      id: id,
+      bahiaId: bahiaId,
+      numeroBahia: numeroBahia,
+      usuarioId: usuarioId,
+      usuarioNombre: usuarioNombre,
+      fechaHoraInicio: fechaHoraInicio,
+      fechaHoraFin: fechaHoraFin,
+      fechaCreacion: fechaCreacion,
+      estado: estado ?? this.estado,
+      vehiculoPlaca: vehiculoPlaca,
+      conductorNombre: conductorNombre,
+      mercanciaTipo: mercanciaTipo,
+      observaciones: observaciones ?? this.observaciones,
+    );
+  }
+
   String get fechaFinFormateada {
     return DateFormat('dd/MM/yyyy HH:mm').format(fechaHoraFin);
   }
