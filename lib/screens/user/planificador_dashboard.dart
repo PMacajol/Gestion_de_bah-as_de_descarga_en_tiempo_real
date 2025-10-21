@@ -11,7 +11,7 @@ import 'package:intl/intl.dart';
 import 'package:syncfusion_flutter_calendar/calendar.dart';
 
 class PlanificadorDashboard extends StatefulWidget {
-  const PlanificadorDashboard({Key? key}) : super(key: key);
+  const PlanificadorDashboard({super.key});
 
   @override
   _PlanificadorDashboardState createState() => _PlanificadorDashboardState();
@@ -132,8 +132,8 @@ class _PlanificadorDashboardState extends State<PlanificadorDashboard>
                 final bahias = bahiaProvider.bahias;
                 _crearReserva(context, bahias);
               },
-              child: const Icon(Icons.add),
               backgroundColor: AppColors.primary,
+              child: const Icon(Icons.add),
             )
           : null,
     );
@@ -690,7 +690,7 @@ class _PlanificadorDashboardState extends State<PlanificadorDashboard>
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                ...bahias.map((bahia) => _buildTarjetaBahia(bahia)).toList(),
+                ...bahias.map((bahia) => _buildTarjetaBahia(bahia)),
               ],
             ),
           ),

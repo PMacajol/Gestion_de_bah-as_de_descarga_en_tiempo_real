@@ -19,7 +19,7 @@ class ChartData {
 }
 
 class SupervisorDashboard extends StatefulWidget {
-  const SupervisorDashboard({Key? key}) : super(key: key);
+  const SupervisorDashboard({super.key});
 
   @override
   _SupervisorDashboardState createState() => _SupervisorDashboardState();

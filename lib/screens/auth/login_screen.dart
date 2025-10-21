@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:bahias_descarga_system/providers/auth_provider.dart';
 import 'package:bahias_descarga_system/models/usuario_model.dart';
-import 'package:bahias_descarga_system/utils/constants.dart';
-import 'package:bahias_descarga_system/utils/validators.dart';
+import 'package:bahias_descarga_system/providers/bahia_provider.dart';
+import 'package:bahias_descarga_system/providers/reserva_provider.dart';
+import 'package:bahias_descarga_system/providers/mantenimiento.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   _LoginScreenState createState() => _LoginScreenState();
@@ -19,47 +20,186 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
 
-  void _submit() async {
-    if (_formKey.currentState!.validate()) {
-      setState(() => _isLoading = true);
+  // ✅ MÉTODO PRINCIPAL DE LOGIN UNIFICADO
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      try {
-        final authProvider = Provider.of<AuthProvider>(context, listen: false);
-        await authProvider.login(
-          _emailController.text,
-          _passwordController.text,
-        );
+    setState(() => _isLoading = true);
 
-        // Redirigir según el tipo de usuario
-        final usuario = authProvider.usuario;
-        if (usuario != null) {
-          switch (usuario.tipo) {
-            case TipoUsuario.administrador:
-              Navigator.pushReplacementNamed(context, '/admin');
-              break;
-            case TipoUsuario.operador:
-              Navigator.pushReplacementNamed(context, '/dashboard');
-              break;
-            case TipoUsuario.planificador:
-              Navigator.pushReplacementNamed(context, '/planificador');
-              break;
-            case TipoUsuario.supervisor:
-              Navigator.pushReplacementNamed(context, '/supervisor');
-              break;
-            case TipoUsuario.administradorTI:
-              Navigator.pushReplacementNamed(context, '/admin-ti');
-              break;
-            default:
-              Navigator.pushReplacementNamed(context, '/dashboard');
-          }
+    try {
+      print('🔄 Iniciando proceso de login...');
+
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final bahiaProvider = Provider.of<BahiaProvider>(context, listen: false);
+      final reservaProvider =
+          Provider.of<ReservaProvider>(context, listen: false);
+      final mantenimientoProvider =
+          Provider.of<MantenimientoProvider>(context, listen: false);
+
+      // 1. Verificar conexión primero
+      print('🔍 Verificando conexión con el servidor...');
+      final conectado = await authProvider.verificarConexion();
+      if (!conectado) {
+        throw Exception(
+            'No se puede conectar al servidor. Verifica que el backend esté ejecutándose.');
+      }
+
+      // 2. Realizar login
+      final success = await authProvider.login(
+        _emailController.text,
+        _passwordController.text,
+      );
+
+      if (!success) {
+        throw Exception('Login falló sin error específico');
+      }
+
+      // 3. Verificar que tenemos token
+      if (authProvider.token == null) {
+        throw Exception('No se recibió token del servidor');
+      }
+
+      print('🔑 Token obtenido: ${authProvider.token!.substring(0, 20)}...');
+
+      // 4. CONFIGURAR TOKEN EN TODOS LOS PROVIDERS
+      await _configureProviders(authProvider.token!);
+
+      // 5. Verificar que el token es válido
+      print('🔐 Verificando validez del token...');
+      final tokenValido = await authProvider.verificarTokenValido();
+      if (!tokenValido) {
+        throw Exception('Token inválido o expirado');
+      }
+
+      // 6. Redirigir según el tipo de usuario
+      final usuario = authProvider.usuario;
+      if (usuario != null) {
+        print('👤 Usuario autenticado: ${usuario.nombre} (${usuario.tipo})');
+
+        String route;
+        switch (usuario.tipo) {
+          case TipoUsuario.administrador:
+          case TipoUsuario.administradorTI:
+            route = '/admin';
+            break;
+          case TipoUsuario.planificador:
+            route = '/planificador';
+            break;
+          case TipoUsuario.supervisor:
+            route = '/supervisor';
+            break;
+          case TipoUsuario.operador:
+          default:
+            route = '/dashboard';
         }
-      } catch (e) {
+
+        print('🚀 Navegando a: $route');
+
+        // Verificar que el widget aún está montado antes de navegar
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, route);
+        }
+      } else {
+        throw Exception('No se pudo obtener información del usuario');
+      }
+    } catch (e) {
+      print('❌ Error en login: $e');
+
+      // Solo mostrar error si el widget aún está montado
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
-      } finally {
+      }
+    } finally {
+      // Solo llamar setState si el widget aún está montado
+      if (mounted) {
         setState(() => _isLoading = false);
       }
+    }
+  }
+
+  // ✅ MÉTODO MEJORADO PARA CONFIGURAR TOKEN EN TODOS LOS PROVIDERS
+  Future<void> _configureProviders(String token) async {
+    try {
+      print('🔄 Configurando providers con token...');
+
+      final bahiaProvider = Provider.of<BahiaProvider>(context, listen: false);
+      final reservaProvider =
+          Provider.of<ReservaProvider>(context, listen: false);
+      final mantenimientoProvider =
+          Provider.of<MantenimientoProvider>(context, listen: false);
+
+      // Configurar token en todos los providers
+      bahiaProvider.setToken(token);
+      reservaProvider.setToken(token);
+      mantenimientoProvider.setToken(token);
+
+      print('✅ Token configurado en todos los providers');
+
+      // Cargar datos iniciales en segundo plano (sin await para no bloquear)
+      Future.microtask(() async {
+        try {
+          print('📥 Cargando datos iniciales en segundo plano...');
+
+          await Future.wait([
+            bahiaProvider.cargarBahias(),
+            reservaProvider.cargarReservas(),
+          ]).timeout(const Duration(seconds: 10));
+
+          print('✅ Datos iniciales cargados exitosamente');
+        } catch (e) {
+          print('⚠️ Error cargando datos en segundo plano: $e');
+          // No mostramos error al usuario porque esto es en segundo plano
+        }
+      });
+    } catch (e) {
+      print('❌ Error configurando providers: $e');
+      throw Exception('Error al configurar la aplicación: $e');
+    }
+  }
+
+  // ✅ MÉTODO PARA PROBAR CONEXIÓN (BOTÓN DEBUG)
+  Future<void> _probarConexion() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    try {
+      setState(() => _isLoading = true);
+
+      print('🔍 Probando conexión...');
+      final conectado = await authProvider.verificarConexion();
+
+      if (conectado) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Conexión exitosa con el servidor'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        print('✅ Servidor responde correctamente');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ No se puede conectar al servidor'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        print('❌ Servidor no responde');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error probando conexión: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      print('❌ Error en prueba de conexión: $e');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -93,7 +233,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       CircleAvatar(
                         radius: 50,
                         backgroundColor: Colors.white,
-                        backgroundImage: NetworkImage(
+                        backgroundImage: const NetworkImage(
                           'https://thumbs.dreamstime.com/b/personaje-masculino-alegre-est%C3%A1-saludando-con-su-mano-sobre-fondo-blanco-concepto-de-personas-que-expresan-sus-emociones-lenguaje-228376228.jpg',
                         ),
                       ),
@@ -101,9 +241,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
 
                       // Nombre del sistema
-                      Text(
+                      const Text(
                         'Sistema de Bahías',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
@@ -191,22 +331,54 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 16),
 
+                      // Botón de login
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _submit,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                          ),
                           child: _isLoading
-                              ? const CircularProgressIndicator()
-                              : const Text('Iniciar Sesión'),
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white),
+                                  ),
+                                )
+                              : const Text(
+                                  'Iniciar Sesión',
+                                  style: TextStyle(fontSize: 16),
+                                ),
                         ),
                       ),
 
                       const SizedBox(height: 16),
 
+                      // Botón de prueba de conexión (solo para debug)
+                      if (!_isLoading) ...[
+                        TextButton(
+                          onPressed: _probarConexion,
+                          child: const Text(
+                            '🔧 Probar Conexión',
+                            style: TextStyle(color: Colors.white70),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // Registro
                       TextButton(
-                        onPressed: () {
-                          Navigator.pushNamed(context, '/register');
-                        },
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                Navigator.pushNamed(context, '/register');
+                              },
                         child: const Text(
                           '¿No tienes cuenta? Regístrate aquí',
                           style: TextStyle(color: Colors.white),

@@ -27,6 +27,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   int _selectedIndex = 0;
   final ScrollController _scrollController = ScrollController();
   int _loadedItems = 20;
+  bool _cargandoDatos = true;
 
   @override
   void initState() {
@@ -46,6 +47,9 @@ class _AdminDashboardState extends State<AdminDashboard>
         });
       }
     });
+
+    // Cargar datos al iniciar
+    _cargarDatosIniciales();
   }
 
   @override
@@ -55,8 +59,195 @@ class _AdminDashboardState extends State<AdminDashboard>
     super.dispose();
   }
 
+  Future<void> _cargarDatosIniciales() async {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final bahiaProvider = Provider.of<BahiaProvider>(context, listen: false);
+      final reservaProvider =
+          Provider.of<ReservaProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+      // Verificar que tenemos token
+      if (authProvider.token == null) {
+        print('❌ No hay token disponible en AdminDashboard');
+        setState(() {
+          _cargandoDatos = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'No hay sesión activa. Por favor, inicia sesión nuevamente.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
+      try {
+        setState(() {
+          _cargandoDatos = true;
+        });
+
+        print(
+            '🔑 Token disponible: ${authProvider.token!.substring(0, 20)}...');
+
+        // Pasar el token a los providers (por si acaso no se propagó correctamente)
+        bahiaProvider.setToken(authProvider.token!);
+        reservaProvider.setToken(authProvider.token!);
+
+        print('🔄 Iniciando carga de datos...');
+
+        // Verificar conexión primero
+        final conectado = await authProvider.verificarConexion();
+        if (!conectado) {
+          throw Exception(
+              'No se puede conectar al servidor. Verifica que el backend esté ejecutándose.');
+        }
+
+        // Verificar que el token es válido
+        print('🔐 Verificando validez del token...');
+        final tokenValido = await authProvider.verificarTokenValido();
+        if (!tokenValido) {
+          throw Exception(
+              'Token inválido o expirado. Por favor, inicia sesión nuevamente.');
+        }
+
+        // Cargar datos secuencialmente para mejor debugging
+        await bahiaProvider.cargarBahias();
+        print('✅ Bahías cargadas: ${bahiaProvider.bahias.length}');
+
+        await reservaProvider.cargarReservas();
+        print('✅ Reservas cargadas: ${reservaProvider.reservas.length}');
+
+        setState(() {
+          _cargandoDatos = false;
+        });
+
+        print('🎉 Todos los datos cargados exitosamente');
+      } catch (e) {
+        print('❌ Error en carga de datos: $e');
+        setState(() {
+          _cargandoDatos = false;
+        });
+
+        // Mostrar error detallado
+        _mostrarErrorDetallado(context, e);
+      }
+    });
+  }
+
+  void _mostrarErrorDetallado(BuildContext context, dynamic error) {
+    String mensaje = 'Error desconocido';
+
+    if (error.toString().contains('401')) {
+      mensaje =
+          'Error de autenticación (401). El token puede ser inválido o haber expirado.';
+    } else if (error.toString().contains('403')) {
+      mensaje = 'No tienes permisos para acceder a este recurso.';
+    } else if (error.toString().contains('404')) {
+      mensaje = 'Endpoint no encontrado. Verifica las URLs de la API.';
+    } else if (error.toString().contains('Connection refused') ||
+        error.toString().contains('Failed host lookup')) {
+      mensaje =
+          'No se puede conectar al servidor. Verifica que el backend esté ejecutándose en el puerto 8000.';
+    } else if (error.toString().contains('timeout')) {
+      mensaje =
+          'Tiempo de espera agotado. El servidor está lento o no responde.';
+    } else if (error.toString().contains('SocketException')) {
+      mensaje = 'Error de conexión de red. Verifica tu conexión a internet.';
+    } else {
+      mensaje = 'Error: $error';
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(mensaje),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
+  Future<void> _actualizarDatos() async {
+    final bahiaProvider = Provider.of<BahiaProvider>(context, listen: false);
+    final reservaProvider =
+        Provider.of<ReservaProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    try {
+      setState(() {
+        _cargandoDatos = true;
+      });
+
+      // Verificar token antes de actualizar
+      if (authProvider.token == null) {
+        throw Exception('No hay token de autenticación disponible');
+      }
+
+      print('🔄 Actualizando datos...');
+
+      await Future.wait([
+        bahiaProvider.cargarBahias(),
+        reservaProvider.cargarReservas(),
+      ]).timeout(const Duration(seconds: 15));
+
+      setState(() {
+        _cargandoDatos = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Datos actualizados correctamente'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _cargandoDatos = false;
+      });
+      print('❌ Error al actualizar: $e');
+      _mostrarErrorDetallado(context, e);
+    }
+  }
+
+  Widget _buildLoadingWidget() {
+    return Scaffold(
+      appBar: CustomAppBar(
+        title: 'Panel de Administración',
+        showBackButton: false,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            const Text('Conectando con el servidor...'),
+            const SizedBox(height: 8),
+            Consumer<AuthProvider>(
+              builder: (context, authProvider, child) {
+                return Text(
+                  'Token: ${authProvider.token != null ? '✅ Disponible' : '❌ No disponible'}',
+                  style: TextStyle(
+                    color:
+                        authProvider.token != null ? Colors.green : Colors.red,
+                    fontSize: 12,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Si está cargando, mostrar widget de carga mejorado
+    if (_cargandoDatos) {
+      return _buildLoadingWidget();
+    }
+
     final bahiaProvider = Provider.of<BahiaProvider>(context);
     final reservaProvider = Provider.of<ReservaProvider>(context);
     final authProvider = Provider.of<AuthProvider>(context);
@@ -80,13 +271,26 @@ class _AdminDashboardState extends State<AdminDashboard>
         title: 'Panel de Administración',
         showBackButton: false,
         actions: [
+          // Botón de debug para verificar token
+          IconButton(
+            icon: const Icon(Icons.security, color: Colors.white),
+            onPressed: () => _verificarToken(context),
+            tooltip: 'Verificar Token',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _actualizarDatos,
+            tooltip: 'Actualizar datos',
+          ),
           IconButton(
             icon: const Icon(Icons.notifications_active, color: Colors.white),
             onPressed: () => _mostrarNotificaciones(context),
+            tooltip: 'Notificaciones',
           ),
           IconButton(
             icon: const Icon(Icons.bar_chart, color: Colors.white),
             onPressed: () => _mostrarReportesCompletos(context, reservas),
+            tooltip: 'Reportes',
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Colors.white),
@@ -95,17 +299,33 @@ class _AdminDashboardState extends State<AdminDashboard>
                 _mostrarConfiguracion(context);
               } else if (value == 'backup') {
                 _realizarBackup(context);
+              } else if (value == 'debug') {
+                _mostrarInfoDebug(
+                    context, authProvider, bahiaProvider, reservaProvider);
               }
             },
             itemBuilder: (BuildContext context) {
               return [
                 const PopupMenuItem<String>(
                   value: 'configuracion',
-                  child: Text('Configuración'),
+                  child: ListTile(
+                    leading: Icon(Icons.settings),
+                    title: Text('Configuración'),
+                  ),
                 ),
                 const PopupMenuItem<String>(
                   value: 'backup',
-                  child: Text('Realizar Backup'),
+                  child: ListTile(
+                    leading: Icon(Icons.backup),
+                    title: Text('Realizar Backup'),
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'debug',
+                  child: ListTile(
+                    leading: Icon(Icons.bug_report),
+                    title: Text('Info Debug'),
+                  ),
                 ),
               ];
             },
@@ -148,10 +368,10 @@ class _AdminDashboardState extends State<AdminDashboard>
             child: TabBarView(
               controller: _tabController,
               children: [
-                _buildDashboardTab(bahias, reservas),
+                _buildDashboardTab(bahias, reservas, reservaProvider),
                 _buildBahiasTab(bahiaProvider, bahias),
                 _buildReservasTab(reservaProvider, reservas),
-                _buildReportesTab(bahias, reservas),
+                _buildReportesTab(bahias, reservas, reservaProvider),
               ],
             ),
           ),
@@ -162,6 +382,7 @@ class _AdminDashboardState extends State<AdminDashboard>
               onPressed: () => _agregarNuevaBahia(context, bahiaProvider),
               child: const Icon(Icons.add),
               backgroundColor: AppColors.primary,
+              tooltip: 'Agregar nueva bahía',
             )
           : null,
       bottomNavigationBar: Responsive.isMobile(context)
@@ -193,6 +414,89 @@ class _AdminDashboardState extends State<AdminDashboard>
               ],
             )
           : null,
+    );
+  }
+
+  Future<void> _verificarToken(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    try {
+      final tokenValido = await authProvider.verificarTokenValido();
+      final tokenInfo = authProvider.getTokenInfo();
+
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Información del Token'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('✅ Token válido: ${tokenValido ? "SÍ" : "NO"}'),
+                const SizedBox(height: 10),
+                if (tokenInfo != null) ...[
+                  Text('👤 Usuario ID: ${tokenInfo['sub']}'),
+                  Text('🎯 Tipo: ${tokenInfo['tipo']}'),
+                  Text(
+                      '⏰ Expira: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.fromMillisecondsSinceEpoch(tokenInfo['exp'] * 1000))}'),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                    '🔑 Token (inicio): ${authProvider.token?.substring(0, 30)}...'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      _mostrarErrorDetallado(context, e);
+    }
+  }
+
+  void _mostrarInfoDebug(BuildContext context, AuthProvider authProvider,
+      BahiaProvider bahiaProvider, ReservaProvider reservaProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Información de Debug'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🔐 AUTENTICACIÓN:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(
+                  'Token: ${authProvider.token != null ? "✅ Disponible" : "❌ No disponible"}'),
+              Text(
+                  'Usuario: ${authProvider.usuario?.nombre ?? "No autenticado"}'),
+              Text('Autenticado: ${authProvider.autenticado}'),
+              const SizedBox(height: 16),
+              const Text('📊 DATOS:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('Bahías cargadas: ${bahiaProvider.bahias.length}'),
+              Text('Reservas cargadas: ${reservaProvider.reservas.length}'),
+              const SizedBox(height: 16),
+              const Text('🌐 CONEXIÓN:',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('URL Base: http://10.0.2.2:8000'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -290,81 +594,311 @@ class _AdminDashboardState extends State<AdminDashboard>
   void _ponerEnUso(
       BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
     try {
-      await bahiaProvider.actualizarEstadoBahia(bahia.id, EstadoBahia.enUso);
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bahía puesta en uso')),
-      );
+      await _mostrarDialogoPonerEnUso(context, bahia, bahiaProvider);
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
+  }
+
+  Future<void> _mostrarDialogoPonerEnUso(
+      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
+    String vehiculoPlaca = '';
+    String conductorNombre = '';
+    String mercanciaTipo = '';
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Poner en uso Bahía ${bahia.numero}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Placa del vehículo',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => vehiculoPlaca = value,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Nombre del conductor',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => conductorNombre = value,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Tipo de mercancía',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => mercanciaTipo = value,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (vehiculoPlaca.isEmpty ||
+                  conductorNombre.isEmpty ||
+                  mercanciaTipo.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                      content: Text('Todos los campos son obligatorios')),
+                );
+                return;
+              }
+
+              try {
+                // Cerrar el diálogo de entrada
+                Navigator.pop(dialogContext);
+
+                // ✅ CERRAR el menú de opciones también
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+
+                // Realizar la acción
+                await bahiaProvider.ponerEnUso(
+                    bahia.id, vehiculoPlaca, conductorNombre, mercanciaTipo);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Bahía puesta en uso correctamente')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _ponerEnMantenimiento(
       BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
     try {
+      // Cerrar el menú de opciones primero
+      Navigator.pop(context);
+
       await bahiaProvider.ponerEnMantenimiento(
-          bahia.id, 'Mantenimiento programado');
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bahía puesta en mantenimiento')),
-      );
+          bahia.id, 'Mantenimiento programado desde Admin Dashboard');
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Bahía puesta en mantenimiento correctamente')),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
   void _liberarDeMantenimiento(
       BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
+    // Cerrar el menú de opciones primero
+    Navigator.pop(context);
+
+    // Mostrar diálogo con opciones
+    final accion = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Mantenimiento de Bahía ${bahia.numero}'),
+        content: const Text('¿Qué acción desea realizar con el mantenimiento?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'cancelar'),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'completar_sin_obs'),
+            style: TextButton.styleFrom(foregroundColor: Colors.blue),
+            child: const Text('Completar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, 'completar_con_obs'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Completar con Observaciones'),
+          ),
+        ],
+      ),
+    );
+
+    if (accion == null) return;
+
     try {
-      await bahiaProvider.liberarDeMantenimiento(bahia.id);
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bahía liberada de mantenimiento')),
-      );
+      if (accion == 'cancelar') {
+        // Pedir motivo de cancelación
+        final motivo = await _mostrarDialogoMotivo(
+            context, '¿Por qué se cancela el mantenimiento?');
+        if (motivo == null || motivo.isEmpty) return;
+
+        await bahiaProvider.cancelarMantenimiento(bahia.id, motivo);
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Mantenimiento cancelado correctamente')),
+          );
+        }
+      } else if (accion == 'completar_sin_obs') {
+        // Completar sin observaciones
+        await bahiaProvider.liberarDeMantenimiento(bahia.id);
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Mantenimiento completado correctamente')),
+          );
+        }
+      } else if (accion == 'completar_con_obs') {
+        // Completar con observaciones
+        final observaciones = await _mostrarDialogoMotivo(
+            context, 'Ingrese observaciones sobre el mantenimiento realizado:');
+        if (observaciones == null || observaciones.isEmpty) {
+          // Si no ingresa observaciones, completar sin ellas
+          await bahiaProvider.liberarDeMantenimiento(bahia.id);
+        } else {
+          await bahiaProvider.liberarDeMantenimiento(bahia.id,
+              observaciones: observaciones);
+        }
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('Mantenimiento completado correctamente')),
+          );
+        }
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
+  }
+
+  Future<String?> _mostrarDialogoMotivo(
+      BuildContext context, String titulo) async {
+    String texto = '';
+
+    return await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(titulo),
+        content: TextField(
+          decoration: const InputDecoration(
+            hintText: 'Escriba aquí...',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+          onChanged: (value) => texto = value,
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, null),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, texto),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _liberarBahia(
       BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
     try {
+      // Cerrar el menú de opciones primero
+      Navigator.pop(context);
+
       await bahiaProvider.liberarBahia(bahia.id);
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bahía liberada')),
-      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bahía liberada correctamente')),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
   void _cancelarReservaBahia(
       BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
+    // Mostrar confirmación antes de cancelar
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmar cancelación'),
+        content: Text(
+            '¿Está seguro de cancelar la reserva de la Bahía ${bahia.numero}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Sí, cancelar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
     try {
-      await bahiaProvider.liberarBahia(bahia.id);
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reserva cancelada')),
-      );
+      // Cerrar el menú de opciones
+      if (context.mounted) {
+        Navigator.pop(context);
+      }
+
+      await bahiaProvider.cancelarReservaBahia(bahia.id);
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reserva cancelada correctamente')),
+        );
+      }
     } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -387,7 +921,6 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   void _mostrarDetallesCompletosBahia(BuildContext context, Bahia bahia) {
-    Navigator.pop(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -400,24 +933,19 @@ class _AdminDashboardState extends State<AdminDashboard>
               _buildDetalleItem('Número', bahia.numero.toString()),
               _buildDetalleItem('Tipo', bahia.nombreTipo),
               _buildDetalleItem('Estado', bahia.nombreEstado),
-              if (bahia.reservadaPor != null)
-                _buildDetalleItem('Reservada por', bahia.reservadaPor!),
-              if (bahia.horaInicioReserva != null)
-                _buildDetalleItem(
-                    'Inicio',
-                    DateFormat('dd/MM/yyyy HH:mm')
-                        .format(bahia.horaInicioReserva!)),
-              if (bahia.horaFinReserva != null)
-                _buildDetalleItem(
-                    'Fin',
-                    DateFormat('dd/MM/yyyy HH:mm')
-                        .format(bahia.horaFinReserva!)),
-              if (bahia.vehiculoPlaca != null)
-                _buildDetalleItem('Vehículo', bahia.vehiculoPlaca!),
-              if (bahia.conductorNombre != null)
-                _buildDetalleItem('Conductor', bahia.conductorNombre!),
-              if (bahia.observaciones != null)
+              _buildDetalleItem(
+                  'Capacidad Máxima', bahia.capacidadMaxima.toString()),
+              _buildDetalleItem('Ubicación', bahia.ubicacion),
+              if (bahia.observaciones != null &&
+                  bahia.observaciones!.isNotEmpty)
                 _buildDetalleItem('Observaciones', bahia.observaciones!),
+              _buildDetalleItem('Activa', bahia.activo ? 'Sí' : 'No'),
+              _buildDetalleItem('Fecha Creación',
+                  DateFormat('dd/MM/yyyy HH:mm').format(bahia.fechaCreacion)),
+              _buildDetalleItem(
+                  'Última Modificación',
+                  DateFormat('dd/MM/yyyy HH:mm')
+                      .format(bahia.fechaUltimaModificacion)),
             ],
           ),
         ),
@@ -448,7 +976,8 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _buildDashboardTab(List<Bahia> bahias, List<Reserva> reservas) {
+  Widget _buildDashboardTab(List<Bahia> bahias, List<Reserva> reservas,
+      ReservaProvider reservaProvider) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -463,7 +992,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           const SizedBox(height: 24),
           _buildReservasProximas(reservas),
           const SizedBox(height: 24),
-          _buildBahiasCriticas(bahias),
+          _buildIndicadoresDashboard(reservaProvider),
         ],
       ),
     );
@@ -586,26 +1115,15 @@ class _AdminDashboardState extends State<AdminDashboard>
     final ahora = DateTime.now();
     final en24Horas = ahora.add(const Duration(days: 1));
 
-    // CORRECCIÓN: Filtrar correctamente las reservas
     final reservasProximas = reservas
         .where((r) {
-          // Verificar que la reserva esté activa y dentro del rango
           bool esActiva = r.estado == 'activa';
           bool estaEnRango = r.fechaHoraInicio.isAfter(ahora) &&
               r.fechaHoraInicio.isBefore(en24Horas);
-
-          // DEBUG: Mostrar información para diagnóstico
-          if (esActiva && estaEnRango) {
-            print('Reserva próxima encontrada: ${r.id} - ${r.fechaHoraInicio}');
-          }
-
           return esActiva && estaEnRango;
         })
         .take(5)
         .toList();
-
-    // DEBUG: Mostrar conteo
-    print('Reservas encontradas en próximas 24h: ${reservasProximas.length}');
 
     return Card(
       elevation: 4,
@@ -622,9 +1140,11 @@ class _AdminDashboardState extends State<AdminDashboard>
             if (reservasProximas.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(16.0),
-                child: Text('No hay reservas activas en las próximas 24 horas',
-                    style: TextStyle(
-                        color: Colors.grey, fontStyle: FontStyle.italic)),
+                child: Text(
+                  'No hay reservas activas en las próximas 24 horas',
+                  style: TextStyle(
+                      color: Colors.grey, fontStyle: FontStyle.italic),
+                ),
               )
             else
               ...reservasProximas.map((reserva) => ListTile(
@@ -656,41 +1176,132 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _buildBahiasCriticas(List<Bahia> bahias) {
-    final bahiasCriticas = bahias
-        .where((b) => b.estado == EstadoBahia.enUso && b.progresoUso > 0.9)
-        .take(5)
-        .toList();
+  Widget _buildIndicadoresDashboard(ReservaProvider reservaProvider) {
+    return FutureBuilder<Map<String, dynamic>>(
+      future: reservaProvider.obtenerIndicadoresDashboard(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildMetricasCargando();
+        } else if (snapshot.hasError) {
+          return _buildErrorCard(
+              'Error al cargar indicadores: ${snapshot.error}');
+        } else {
+          final datos = snapshot.data!;
+          return _buildIndicadoresDashboardReal(datos);
+        }
+      },
+    );
+  }
 
+  Widget _buildMetricasCargando() {
     return Card(
-      elevation: 4,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Expanded(
+                child: _buildMiniMetricaCard(
+                    'Cargando...', 0, Icons.hourglass_empty, Colors.grey)),
+            Expanded(
+                child: _buildMiniMetricaCard(
+                    'Cargando...', 0, Icons.hourglass_empty, Colors.grey)),
+            Expanded(
+                child: _buildMiniMetricaCard(
+                    'Cargando...', 0, Icons.hourglass_empty, Colors.grey)),
+            Expanded(
+                child: _buildMiniMetricaCard(
+                    'Cargando...', 0, Icons.hourglass_empty, Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(String mensaje) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error, color: Colors.red, size: 48),
+            const SizedBox(height: 8),
+            Text(mensaje, textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildIndicadoresDashboardReal(Map<String, dynamic> datos) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           children: [
             const Text(
-              'Bahías con Tiempo Crítico',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              'Indicadores en Tiempo Real',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            if (bahiasCriticas.isEmpty)
-              const Text('No hay bahías en tiempo crítico',
-                  style: TextStyle(color: Colors.grey)),
-            ...bahiasCriticas.map((bahia) => ListTile(
-                  leading: Icon(Icons.warning, color: Colors.orange[700]),
-                  title: Text('Bahía #${bahia.numero}'),
-                  subtitle: LinearProgressIndicator(
-                    value: bahia.progresoUso,
-                    backgroundColor: Colors.grey[200],
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      bahia.progresoUso > 0.9 ? Colors.red : Colors.orange,
-                    ),
-                  ),
-                  trailing:
-                      Text('${(bahia.progresoUso * 100).toStringAsFixed(0)}%'),
-                )),
+            Row(
+              children: [
+                _buildMiniMetricaCard('Hoy', _safeInt(datos['reservas_hoy']),
+                    Icons.today, Colors.blue),
+                _buildMiniMetricaCard(
+                    'Semana',
+                    _safeInt(datos['reservas_semana']),
+                    Icons.date_range,
+                    Colors.green),
+                _buildMiniMetricaCard(
+                    'Críticas',
+                    _safeInt(datos['bahias_criticas']),
+                    Icons.warning,
+                    Colors.orange),
+                _buildMiniMetricaCard(
+                    'Incidencias',
+                    _safeInt(datos['incidencias_abiertas']),
+                    Icons.report_problem,
+                    Colors.red),
+              ],
+            ),
           ],
+        ),
+      ),
+    );
+  }
+
+// Método auxiliar para convertir safe a int
+  int _safeInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is double) return value.toInt();
+    if (value is String) return int.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  Widget _buildMiniMetricaCard(
+      String titulo, int valor, IconData icono, Color color) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Icon(icono, size: 20, color: color),
+              const SizedBox(height: 8),
+              Text(
+                valor.toString(),
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold, color: color),
+              ),
+              Text(
+                titulo,
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -734,17 +1345,7 @@ class _AdminDashboardState extends State<AdminDashboard>
               PopupMenuButton<String>(
                 icon: const Icon(Icons.filter_list),
                 onSelected: (value) {
-                  switch (value) {
-                    case 'todas':
-                      bahiaProvider.limpiarBusqueda();
-                      break;
-                    case 'libres':
-                      // Filtrar por libres
-                      break;
-                    case 'ocupadas':
-                      // Filtrar por ocupadas
-                      break;
-                  }
+                  // Filtros pueden implementarse aquí si es necesario
                 },
                 itemBuilder: (BuildContext context) {
                   return [
@@ -916,6 +1517,23 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Widget _buildBahiaAdminCard(Bahia bahia, BahiaProvider bahiaProvider) {
+    // Determinar texto legible según el estado del enum
+    String estadoTexto;
+    switch (bahia.estado) {
+      case EstadoBahia.libre:
+        estadoTexto = 'Libre';
+        break;
+      case EstadoBahia.enUso:
+        estadoTexto = 'En Uso';
+        break;
+      case EstadoBahia.reservada:
+        estadoTexto = 'Reservada';
+        break;
+      case EstadoBahia.mantenimiento:
+        estadoTexto = 'Mantenimiento';
+        break;
+    }
+
     return GestureDetector(
       onTap: () => _mostrarOpcionesBahia(context, bahia, bahiaProvider),
       onLongPress: () => _mostrarDetallesCompletosBahia(context, bahia),
@@ -934,6 +1552,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Ícono circular de estado
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -947,6 +1566,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                 ),
               ),
               const SizedBox(height: 8),
+
+              // Número de bahía
               Text(
                 'Bahía ${bahia.numero}',
                 style: const TextStyle(
@@ -955,6 +1576,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                 ),
                 textAlign: TextAlign.center,
               ),
+
+              // Tipo de bahía
               Text(
                 bahia.nombreTipo,
                 style: const TextStyle(
@@ -963,8 +1586,10 @@ class _AdminDashboardState extends State<AdminDashboard>
                 ),
                 textAlign: TextAlign.center,
               ),
+
+              // Estado traducido (controlado desde enum)
               Text(
-                bahia.nombreEstado,
+                estadoTexto,
                 style: TextStyle(
                   fontSize: 12,
                   color: bahia.colorEstado,
@@ -972,30 +1597,6 @@ class _AdminDashboardState extends State<AdminDashboard>
                 ),
                 textAlign: TextAlign.center,
               ),
-              if (bahia.reservadaPor != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  bahia.reservadaPor!,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-              ],
-              if (bahia.estado == EstadoBahia.enUso &&
-                  bahia.horaFinReserva != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Termina: ${DateFormat('HH:mm').format(bahia.horaFinReserva!)}',
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: Colors.red,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
             ],
           ),
         ),
@@ -1025,7 +1626,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     ),
                   ),
                   onChanged: (value) {
-                    // Implementar búsqueda si es necesario
+                    // Búsqueda puede implementarse aquí
                   },
                 ),
               ),
@@ -1179,7 +1780,7 @@ class _AdminDashboardState extends State<AdminDashboard>
           ),
         ),
         title: Text(
-          'Reserva #${reserva.id.split('_').last}',
+          'Reserva #${reserva.id.substring(0, 8)}...',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Column(
@@ -1214,8 +1815,6 @@ class _AdminDashboardState extends State<AdminDashboard>
               _cancelarReservaIndividual(context, reserva, reservaProvider);
             } else if (value == 'completar' && reserva.estado == 'activa') {
               _completarReserva(context, reserva, reservaProvider);
-            } else if (value == 'reactivar' && reserva.estado != 'activa') {
-              _reactivarReserva(context, reserva, reservaProvider);
             } else if (value == 'detalles') {
               _mostrarDetallesReserva(context, reserva);
             }
@@ -1223,13 +1822,6 @@ class _AdminDashboardState extends State<AdminDashboard>
           itemBuilder: (BuildContext context) {
             return [
               if (reserva.estado == 'activa') ...[
-                const PopupMenuItem<String>(
-                  value: 'editar',
-                  child: ListTile(
-                    leading: Icon(Icons.edit, size: 20),
-                    title: Text('Editar'),
-                  ),
-                ),
                 const PopupMenuItem<String>(
                   value: 'cancelar',
                   child: ListTile(
@@ -1246,14 +1838,6 @@ class _AdminDashboardState extends State<AdminDashboard>
                   ),
                 ),
               ],
-              if (reserva.estado != 'activa')
-                const PopupMenuItem<String>(
-                  value: 'reactivar',
-                  child: ListTile(
-                    leading: Icon(Icons.refresh, size: 20),
-                    title: Text('Reactivar'),
-                  ),
-                ),
               const PopupMenuItem<String>(
                 value: 'detalles',
                 child: ListTile(
@@ -1284,14 +1868,11 @@ class _AdminDashboardState extends State<AdminDashboard>
           TextButton(
             onPressed: () async {
               try {
-                // CORRECCIÓN: Usar el provider para cancelar la reserva
                 await reservaProvider.cancelarReserva(reserva.id);
 
-                // Actualizar también el estado de la bahía
                 final bahiaProvider =
                     Provider.of<BahiaProvider>(context, listen: false);
-                await bahiaProvider
-                    .liberarBahia(reserva.numeroBahia.toString());
+                await bahiaProvider.liberarBahia(reserva.bahiaId);
 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1299,7 +1880,6 @@ class _AdminDashboardState extends State<AdminDashboard>
                       content: Text('Reserva cancelada exitosamente')),
                 );
 
-                // Forzar actualización de la UI
                 setState(() {});
               } catch (e) {
                 Navigator.pop(context);
@@ -1318,47 +1898,16 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   void _editarReserva(
       BuildContext context, Reserva reserva, ReservaProvider reservaProvider) {
-    // CORRECCIÓN: Implementar edición real
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Editar Reserva'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Editando reserva para Bahía ${reserva.numeroBahia}'),
-              const SizedBox(height: 16),
-              // Aquí irían los campos de edición
-              const Text('Funcionalidad de edición completa en desarrollo...'),
-            ],
-          ),
-        ),
+        content: const Text(
+            'Funcionalidad de edición en desarrollo para próxima versión.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () async {
-              try {
-                // CORRECCIÓN: Implementar lógica real de edición
-                // await reservaProvider.editarReserva(reserva.id, nuevosDatos);
-
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Reserva editada exitosamente')),
-                );
-
-                setState(() {});
-              } catch (e) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error al editar: $e')),
-                );
-              }
-            },
-            child: const Text('Guardar cambios'),
+            child: const Text('Cerrar'),
           ),
         ],
       ),
@@ -1368,29 +1917,10 @@ class _AdminDashboardState extends State<AdminDashboard>
   void _completarReserva(BuildContext context, Reserva reserva,
       ReservaProvider reservaProvider) async {
     try {
-      // Simular completar reserva
-      await Future.delayed(const Duration(milliseconds: 500));
+      await reservaProvider.completarReserva(reserva.id);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Reserva marcada como completada')),
-      );
-
-      setState(() {});
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    }
-  }
-
-  void _reactivarReserva(BuildContext context, Reserva reserva,
-      ReservaProvider reservaProvider) async {
-    try {
-      // Simular reactivar reserva
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Reserva reactivada')),
       );
 
       setState(() {});
@@ -1405,7 +1935,7 @@ class _AdminDashboardState extends State<AdminDashboard>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Detalles de Reserva #${reserva.id.split('_').last}'),
+        title: Text('Detalles de Reserva #${reserva.id.substring(0, 8)}...'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1414,6 +1944,7 @@ class _AdminDashboardState extends State<AdminDashboard>
               _buildDetalleItem('ID', reserva.id),
               _buildDetalleItem('Bahía', reserva.numeroBahia.toString()),
               _buildDetalleItem('Usuario', reserva.usuarioNombre),
+              _buildDetalleItem('Email', reserva.usuarioEmail),
               _buildDetalleItem('Estado', reserva.estado),
               _buildDetalleItem(
                   'Inicio',
@@ -1424,6 +1955,14 @@ class _AdminDashboardState extends State<AdminDashboard>
               _buildDetalleItem('Duración', reserva.duracion),
               _buildDetalleItem('Creación',
                   DateFormat('dd/MM/yyyy HH:mm').format(reserva.fechaCreacion)),
+              if (reserva.vehiculoPlaca != null)
+                _buildDetalleItem('Vehículo', reserva.vehiculoPlaca!),
+              if (reserva.conductorNombre != null)
+                _buildDetalleItem('Conductor', reserva.conductorNombre!),
+              if (reserva.mercanciaTipo != null)
+                _buildDetalleItem('Mercancía', reserva.mercanciaTipo!),
+              if (reserva.observaciones != null)
+                _buildDetalleItem('Observaciones', reserva.observaciones!),
             ],
           ),
         ),
@@ -1437,19 +1976,8 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _buildReportesTab(List<Bahia> bahias, List<Reserva> reservas) {
-    final ahora = DateTime.now();
-    final inicioDia = DateTime(ahora.year, ahora.month, ahora.day);
-    final inicioSemana = ahora.subtract(Duration(days: ahora.weekday - 1));
-    final inicioMes = DateTime(ahora.year, ahora.month, 1);
-
-    final reservasHoy =
-        reservas.where((r) => r.fechaCreacion.isAfter(inicioDia)).length;
-    final reservasSemana =
-        reservas.where((r) => r.fechaCreacion.isAfter(inicioSemana)).length;
-    final reservasMes =
-        reservas.where((r) => r.fechaCreacion.isAfter(inicioMes)).length;
-
+  Widget _buildReportesTab(List<Bahia> bahias, List<Reserva> reservas,
+      ReservaProvider reservaProvider) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -1460,32 +1988,48 @@ class _AdminDashboardState extends State<AdminDashboard>
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  const Text(
-                    'Resumen del Mes',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _buildMetricaCard('Hoy', reservasHoy, Icons.today),
-                      _buildMetricaCard(
-                          'Esta semana', reservasSemana, Icons.date_range),
-                      _buildMetricaCard(
-                          'Este mes', reservasMes, Icons.calendar_view_month),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+
+          // Estadísticas de uso
+          FutureBuilder<Map<String, dynamic>>(
+            future: reservaProvider.obtenerEstadisticasUso(
+                DateTime.now().subtract(const Duration(days: 30)),
+                DateTime.now()),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return _buildGraficoCargando();
+              } else if (snapshot.hasError) {
+                return _buildErrorCard(
+                    'Error al cargar estadísticas: ${snapshot.error}');
+              } else {
+                final datos = snapshot.data!;
+                return _buildEstadisticasUso(datos);
+              }
+            },
           ),
+
           const SizedBox(height: 24),
-          _buildGraficoTendencia(reservas),
+
+          // Gráfico de tendencia
+          FutureBuilder<Map<String, dynamic>>(
+            future: reservaProvider.obtenerEstadisticasUso(
+                DateTime.now().subtract(const Duration(days: 30)),
+                DateTime.now()),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return _buildGraficoCargando();
+              } else if (snapshot.hasError) {
+                return _buildErrorCard(
+                    'Error al cargar tendencia: ${snapshot.error}');
+              } else {
+                final datos = snapshot.data!;
+                return _buildGraficoTendenciaReal(datos);
+              }
+            },
+          ),
+
           const SizedBox(height: 24),
+
+          // Exportar reportes
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -1501,24 +2045,27 @@ class _AdminDashboardState extends State<AdminDashboard>
                     spacing: 12,
                     runSpacing: 12,
                     children: [
-                      _buildBotonExportacion('Reporte Diario', Icons.today,
-                          Colors.blue, () => _generarReporteDiario(reservas)),
+                      _buildBotonExportacion(
+                          'Reporte Diario',
+                          Icons.today,
+                          Colors.blue,
+                          () => _generarReporteDiario(reservaProvider)),
                       _buildBotonExportacion(
                           'Reporte Semanal',
                           Icons.date_range,
                           Colors.green,
-                          () => _generarReporteSemanal(reservas)),
+                          () => _generarReporteSemanal(reservaProvider)),
                       _buildBotonExportacion(
                           'Reporte Mensual',
                           Icons.calendar_view_month,
                           Colors.orange,
-                          () => _generarReporteMensual(reservas)),
+                          () => _generarReporteMensual(reservaProvider)),
                       _buildBotonExportacion(
                           'Personalizado',
                           Icons.tune,
                           Colors.purple,
-                          () =>
-                              _generarReportePersonalizado(context, reservas)),
+                          () => _generarReportePersonalizado(
+                              context, reservaProvider)),
                     ],
                   ),
                 ],
@@ -1530,42 +2077,37 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  Widget _buildMetricaCard(String titulo, int valor, IconData icono) {
-    return Expanded(
-      child: Card(
-        elevation: 2,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            children: [
-              Icon(icono, size: 24, color: Colors.blue),
-              const SizedBox(height: 8),
-              Text(
-                valor.toString(),
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              Text(
-                titulo,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-            ],
-          ),
+  Widget _buildGraficoCargando() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text('Cargando gráfico...'),
+            const SizedBox(height: 16),
+            LinearProgressIndicator(),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildGraficoTendencia(List<Reserva> reservas) {
-    final datosTendencia = [
-      ChartData('Lun', 12),
-      ChartData('Mar', 18),
-      ChartData('Mié', 15),
-      ChartData('Jue', 22),
-      ChartData('Vie', 19),
-      ChartData('Sáb', 25),
-      ChartData('Dom', 20),
-    ];
+  Widget _buildEstadisticasUso(Map<String, dynamic> datos) {
+    final stats = datos['estadisticas_generales'] ?? {};
+    final usoPorTipo = datos['uso_por_tipo_bahia'] ?? [];
+
+    // Manejo seguro de la duración promedio
+    final dynamic duracionPromedio = stats["duracion_promedio_minutos"];
+    String duracionPromedioTexto = "0 min";
+
+    if (duracionPromedio != null) {
+      if (duracionPromedio is num) {
+        duracionPromedioTexto = "${duracionPromedio.toStringAsFixed(0)} min";
+      } else if (duracionPromedio is String) {
+        // Si viene como string, usarlo directamente
+        duracionPromedioTexto = duracionPromedio;
+      }
+    }
 
     return Card(
       child: Padding(
@@ -1574,24 +2116,127 @@ class _AdminDashboardState extends State<AdminDashboard>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Tendencia Semanal de Reservas',
+              'Estadísticas de Uso (Últimos 30 días)',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                _buildMiniMetricaCard('Total',
+                    _safeInt(stats['total_reservas']), Icons.list, Colors.blue),
+                _buildMiniMetricaCard(
+                  'Completadas',
+                  _safeInt(stats['reservas_completadas']),
+                  Icons.check_circle,
+                  Colors.green,
+                ),
+                _buildMiniMetricaCard(
+                  'Canceladas',
+                  _safeInt(stats['reservas_canceladas']),
+                  Icons.cancel,
+                  Colors.red,
+                ),
+                _buildMiniMetricaCardTexto(
+                  'Duración Prom.',
+                  duracionPromedioTexto, // Usar el texto directamente
+                  Icons.timer,
+                  Colors.orange,
+                ),
+              ],
+            ),
+            if (usoPorTipo.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Uso por Tipo de Bahía:',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              ...usoPorTipo.map((tipo) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                            child: Text(tipo['tipo_bahia'] ?? 'Desconocido')),
+                        Text('${_safeInt(tipo['total_reservas'])} reservas'),
+                      ],
+                    ),
+                  )),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+// Nuevo método para mostrar texto en lugar de números
+  Widget _buildMiniMetricaCardTexto(
+      String titulo, String valor, IconData icono, Color color) {
+    return Expanded(
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Icon(icono, size: 20, color: color),
+              const SizedBox(height: 8),
+              Text(
+                valor,
+                style: TextStyle(
+                    fontSize: 14, fontWeight: FontWeight.bold, color: color),
+                textAlign: TextAlign.center,
+              ),
+              Text(
+                titulo,
+                style: const TextStyle(fontSize: 10, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGraficoTendenciaReal(Map<String, dynamic> datos) {
+    final tendencia = datos['tendencia_diaria'] ?? [];
+    final datosChart = tendencia.map<ChartData>((item) {
+      return ChartData(
+        DateFormat('dd/MM').format(DateTime.parse(item['fecha'])),
+        item['reservas'] ?? 0,
+      );
+    }).toList();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Tendencia de Reservas (Últimos 30 días)',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             SizedBox(
               height: 200,
-              child: SfCartesianChart(
-                primaryXAxis: const CategoryAxis(),
-                series: <CartesianSeries>[
-                  LineSeries<ChartData, String>(
-                    dataSource: datosTendencia,
-                    xValueMapper: (ChartData data, _) => data.x,
-                    yValueMapper: (ChartData data, _) => data.y,
-                    markerSettings: const MarkerSettings(isVisible: true),
-                    dataLabelSettings: const DataLabelSettings(isVisible: true),
-                  ),
-                ],
-              ),
+              child: datosChart.isNotEmpty
+                  ? SfCartesianChart(
+                      primaryXAxis: const CategoryAxis(),
+                      series: <CartesianSeries>[
+                        LineSeries<ChartData, String>(
+                          dataSource: datosChart,
+                          xValueMapper: (ChartData data, _) => data.x,
+                          yValueMapper: (ChartData data, _) => data.y,
+                          markerSettings: const MarkerSettings(isVisible: true),
+                          dataLabelSettings:
+                              const DataLabelSettings(isVisible: true),
+                        ),
+                      ],
+                    )
+                  : const Center(
+                      child: Text('No hay datos de tendencia disponibles')),
             ),
           ],
         ),
@@ -1608,6 +2253,185 @@ class _AdminDashboardState extends State<AdminDashboard>
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
         foregroundColor: Colors.white,
+      ),
+    );
+  }
+
+  void _generarReporteDiario(ReservaProvider reservaProvider) async {
+    try {
+      final ahora = DateTime.now();
+      final reporte = await reservaProvider.obtenerReporteDiario(ahora);
+      final contenido = _generarContenidoReporteReal(reporte, 'Diario');
+      await _descargarPDF(contenido,
+          'reporte_diario_${DateFormat('yyyyMMdd').format(ahora)}.txt');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reporte diario exportado correctamente')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al generar reporte: $e')),
+      );
+    }
+  }
+
+  void _generarReporteSemanal(ReservaProvider reservaProvider) async {
+    try {
+      final ahora = DateTime.now();
+      final inicioSemana = ahora.subtract(Duration(days: ahora.weekday - 1));
+      final reporte =
+          await reservaProvider.obtenerEstadisticasUso(inicioSemana, ahora);
+      final contenido = _generarContenidoReporteReal(reporte, 'Semanal');
+      await _descargarPDF(contenido,
+          'reporte_semanal_${DateFormat('yyyyMMdd').format(ahora)}.txt');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Reporte semanal exportado correctamente')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al generar reporte: $e')),
+      );
+    }
+  }
+
+  void _generarReporteMensual(ReservaProvider reservaProvider) async {
+    try {
+      final ahora = DateTime.now();
+      final inicioMes = DateTime(ahora.year, ahora.month, 1);
+      final reporte =
+          await reservaProvider.obtenerEstadisticasUso(inicioMes, ahora);
+      final contenido = _generarContenidoReporteReal(reporte, 'Mensual');
+      await _descargarPDF(contenido,
+          'reporte_mensual_${DateFormat('yyyyMM').format(ahora)}.txt');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Reporte mensual exportado correctamente')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al generar reporte: $e')),
+      );
+    }
+  }
+
+  String _generarContenidoReporteReal(
+      Map<String, dynamic> reporte, String tipo) {
+    final buffer = StringBuffer();
+
+    buffer.writeln('REPORTE $tipo DEL SISTEMA DE BAHÍAS');
+    buffer.writeln('=' * 50);
+    buffer.writeln(
+        'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}');
+    buffer.writeln();
+
+    if (reporte['estadisticas_generales'] != null) {
+      final stats = reporte['estadisticas_generales'];
+      buffer.writeln('ESTADÍSTICAS GENERALES:');
+      buffer.writeln('- Total reservas: ${stats['total_reservas']}');
+      buffer
+          .writeln('- Reservas completadas: ${stats['reservas_completadas']}');
+      buffer.writeln('- Reservas canceladas: ${stats['reservas_canceladas']}');
+      buffer.writeln(
+          '- Duración promedio: ${stats['duracion_promedio_minutos']} minutos');
+      buffer.writeln();
+    }
+
+    if (reporte['uso_por_tipo_bahia'] != null) {
+      buffer.writeln('USO POR TIPO DE BAHÍA:');
+      for (final tipo in reporte['uso_por_tipo_bahia']) {
+        buffer.writeln(
+            '- ${tipo['tipo_bahia']}: ${tipo['total_reservas']} reservas');
+      }
+      buffer.writeln();
+    }
+
+    buffer.writeln('--- FIN DEL REPORTE ---');
+    return buffer.toString();
+  }
+
+  Future<void> _descargarPDF(String contenido, String fileName) async {
+    try {
+      final contenidoFormateado = '''
+REPORTE DEL SISTEMA DE BAHÍAS
+=============================
+
+$contenido
+
+---
+Generado el: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}
+''';
+
+      final bytes = utf8.encode(contenidoFormateado);
+      final blob = html.Blob([bytes], 'text/plain;charset=utf-8');
+      final url = html.Url.createObjectUrlFromBlob(blob);
+
+      final anchor = html.document.createElement('a') as html.AnchorElement
+        ..href = url
+        ..download = fileName
+        ..style.display = 'none';
+
+      html.document.body?.children.add(anchor);
+      anchor.click();
+
+      html.document.body?.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+    } catch (e) {
+      _descargarFallback(contenido, fileName);
+    }
+  }
+
+  void _descargarFallback(String contenido, String fileName) {
+    final text = contenido;
+    final bytes = utf8.encode(text);
+    final base64 = base64Encode(bytes);
+    final uri = 'data:text/plain;base64,$base64';
+
+    html.window.open(uri, '_blank');
+  }
+
+  void _generarReportePersonalizado(
+      BuildContext context, ReservaProvider reservaProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reporte Personalizado'),
+        content: const Text('Seleccione el rango de fechas para el reporte.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+
+              final ahora = DateTime.now();
+              final hace15Dias = ahora.subtract(const Duration(days: 15));
+              try {
+                final reporte = await reservaProvider.obtenerEstadisticasUso(
+                    hace15Dias, ahora);
+                final contenido = _generarContenidoReporteReal(
+                    reporte, 'Personalizado (15 días)');
+                await _descargarPDF(contenido,
+                    'reporte_personalizado_${DateFormat('yyyyMMdd').format(ahora)}.txt');
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'Reporte personalizado exportado correctamente')),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error al generar reporte: $e')),
+                );
+              }
+            },
+            child: const Text('Generar'),
+          ),
+        ],
       ),
     );
   }
@@ -1695,14 +2519,13 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _exportarReporteCompleto(
       BuildContext context, List<Reserva> reservas) async {
     try {
-      final contenido = _generarContenidoReporte(reservas);
+      final contenido = _generarContenidoReporteCompleto(reservas);
       await _descargarPDF(contenido,
           'reporte_completo_${DateFormat('yyyyMMdd').format(DateTime.now())}.txt');
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content:
-                Text('Reporte exportado exitosamente como archivo de texto')),
+            content: Text('Reporte completo exportado correctamente')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1711,58 +2534,7 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
   }
 
-  // CORRECCIÓN: Mejorar la generación del reporte
-  Future<void> _descargarPDF(String contenido, String fileName) async {
-    try {
-      // Crear contenido mejor formateado
-      final contenidoFormateado = '''
-REPORTE DEL SISTEMA DE BAHÍAS
-=============================
-
-Fecha de generación: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}
-
-$contenido
-
----
-Fin del reporte
-''';
-
-      // Codificar a UTF-8
-      final bytes = utf8.encode(contenidoFormateado);
-      final blob = html.Blob([bytes], 'text/plain;charset=utf-8');
-      final url = html.Url.createObjectUrlFromBlob(blob);
-
-      final anchor = html.document.createElement('a') as html.AnchorElement
-        ..href = url
-        ..download = fileName.replaceAll(
-            '.pdf', '.txt') // Cambiar a .txt para que sea legible
-        ..style.display = 'none';
-
-      html.document.body?.children.add(anchor);
-      anchor.click();
-
-      // Limpiar
-      html.document.body?.children.remove(anchor);
-      html.Url.revokeObjectUrl(url);
-    } catch (e) {
-      print('Error al descargar reporte: $e');
-      // Fallback: usar un método alternativo
-      _descargarFallback(contenido, fileName);
-    }
-  }
-
-// Método alternativo para descarga
-  void _descargarFallback(String contenido, String fileName) {
-    final text = contenido;
-    final bytes = utf8.encode(text);
-    final base64 = base64Encode(bytes);
-    final uri = 'data:text/plain;base64,$base64';
-
-    html.window.open(uri, '_blank');
-  }
-
-// CORRECCIÓN: Mejorar el contenido del reporte
-  String _generarContenidoReporte(List<Reserva> reservas) {
+  String _generarContenidoReporteCompleto(List<Reserva> reservas) {
     final buffer = StringBuffer();
 
     buffer.writeln('REPORTE COMPLETO DE RESERVAS');
@@ -1772,7 +2544,6 @@ Fin del reporte
     buffer.writeln('Total de reservas: ${reservas.length}');
     buffer.writeln();
 
-    // Estadísticas
     buffer.writeln('ESTADÍSTICAS:');
     buffer.writeln(
         '- Activas: ${reservas.where((r) => r.estado == "activa").length}');
@@ -1782,11 +2553,11 @@ Fin del reporte
         '- Canceladas: ${reservas.where((r) => r.estado == "cancelada").length}');
     buffer.writeln();
 
-    // Detalles
     buffer.writeln('DETALLES DE RESERVAS:');
     buffer.writeln('=' * 50);
 
-    for (final reserva in reservas) {
+    for (final reserva in reservas.take(100)) {
+      // Limitar a 100 reservas para el reporte
       buffer.writeln('ID: ${reserva.id}');
       buffer.writeln('Bahía: ${reserva.numeroBahia}');
       buffer.writeln('Usuario: ${reserva.usuarioNombre}');
@@ -1800,78 +2571,6 @@ Fin del reporte
     }
 
     return buffer.toString();
-  }
-
-// CORRECCIÓN: Actualizar los métodos de exportación para usar .txt
-  void _generarReporteDiario(List<Reserva> reservas) async {
-    final ahora = DateTime.now();
-    final inicioDia = DateTime(ahora.year, ahora.month, ahora.day);
-    final reservasHoy =
-        reservas.where((r) => r.fechaCreacion.isAfter(inicioDia)).toList();
-
-    final contenido = _generarContenidoReporte(reservasHoy);
-    await _descargarPDF(contenido,
-        'reporte_diario_${DateFormat('yyyyMMdd').format(ahora)}.txt');
-  }
-
-  void _generarReporteSemanal(List<Reserva> reservas) async {
-    final ahora = DateTime.now();
-    final inicioSemana = ahora.subtract(Duration(days: ahora.weekday - 1));
-    final reservasSemana =
-        reservas.where((r) => r.fechaCreacion.isAfter(inicioSemana)).toList();
-
-    final contenido = _generarContenidoReporte(reservasSemana);
-    await _descargarPDF(contenido,
-        'reporte_semanal_${DateFormat('yyyyMMdd').format(ahora)}.txt');
-  }
-
-  void _generarReporteMensual(List<Reserva> reservas) async {
-    final ahora = DateTime.now();
-    final inicioMes = DateTime(ahora.year, ahora.month, 1);
-    final reservasMes =
-        reservas.where((r) => r.fechaCreacion.isAfter(inicioMes)).toList();
-
-    final contenido = _generarContenidoReporte(reservasMes);
-    await _descargarPDF(
-        contenido, 'reporte_mensual_${DateFormat('yyyyMM').format(ahora)}.txt');
-  }
-
-  void _generarReportePersonalizado(
-      BuildContext context, List<Reserva> reservas) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reporte Personalizado'),
-        content: const Text('Seleccione el rango de fechas para el reporte.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-
-              final ahora = DateTime.now();
-              final hace15Dias = ahora.subtract(const Duration(days: 15));
-              final reservasFiltradas = reservas
-                  .where((r) => r.fechaCreacion.isAfter(hace15Dias))
-                  .toList();
-
-              final contenido = _generarContenidoReporte(reservasFiltradas);
-              await _descargarPDF(contenido,
-                  'reporte_personalizado_${DateFormat('yyyyMMdd').format(ahora)}.pdf');
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('Reporte personalizado exportado')),
-              );
-            },
-            child: const Text('Generar'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _mostrarConfiguracion(BuildContext context) {
@@ -1911,7 +2610,8 @@ Fin del reporte
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Agregar Nueva Bahía'),
-        content: const Text('Funcionalidad en desarrollo.'),
+        content:
+            const Text('Funcionalidad en desarrollo para próxima versión.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

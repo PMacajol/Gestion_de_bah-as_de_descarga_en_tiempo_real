@@ -6,8 +6,7 @@ class BahiaCard extends StatelessWidget {
   final Bahia bahia;
   final VoidCallback? onTap;
 
-  const BahiaCard({Key? key, required this.bahia, this.onTap})
-      : super(key: key);
+  const BahiaCard({super.key, required this.bahia, this.onTap});
 
   @override
   Widget build(BuildContext context) {
