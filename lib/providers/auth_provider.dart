@@ -14,7 +14,8 @@ class AuthProvider with ChangeNotifier {
   String? get token => _token;
 
   // URL base - IMPORTANTE: Cambia según tu entorno
-  static const String _baseUrl = 'http://localhost:8000';
+  static const String _baseUrl =
+      'https://bahiarealtime-czbxgfg4c4g3f0e6.canadacentral-01.azurewebsites.net';
   // Método para verificar conexión con el backend
   Future<bool> verificarConexion() async {
     try {

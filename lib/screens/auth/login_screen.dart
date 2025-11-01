@@ -79,15 +79,17 @@ class _LoginScreenState extends State<LoginScreen> {
         String route;
         switch (usuario.tipo) {
           case TipoUsuario.administrador:
-          case TipoUsuario.administradorTI:
             route = '/admin';
             break;
+          case TipoUsuario.administradorTI:
+            route = '/admin-ti';
           case TipoUsuario.planificador:
             route = '/planificador';
             break;
           case TipoUsuario.supervisor:
             route = '/supervisor';
             break;
+
           case TipoUsuario.operador:
           default:
             route = '/dashboard';

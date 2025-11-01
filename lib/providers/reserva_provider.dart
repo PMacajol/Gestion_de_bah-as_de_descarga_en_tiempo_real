@@ -6,7 +6,8 @@ import 'package:bahias_descarga_system/models/reserva_model.dart';
 class ReservaProvider with ChangeNotifier {
   List<Reserva> _reservas = [];
   String? _token;
-  final String _baseUrl = 'http://localhost:8000/api';
+  final String _baseUrl =
+      'https://bahiarealtime-czbxgfg4c4g3f0e6.canadacentral-01.azurewebsites.net/api';
 
   List<Reserva> get reservas => _reservas;
 

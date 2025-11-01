@@ -2,11 +2,13 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/material.dart';
 
 class MantenimientoProvider with ChangeNotifier {
   final List<dynamic> _mantenimientos = [];
   String? _token;
-  final String _baseUrl = 'http://localhost:8000/api';
+  final String _baseUrl =
+      'https://bahiarealtime-czbxgfg4c4g3f0e6.canadacentral-01.azurewebsites.net/api';
 
   List<dynamic> get mantenimientos => _mantenimientos;
 

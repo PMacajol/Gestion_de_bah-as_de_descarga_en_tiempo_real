@@ -1,8 +1,11 @@
+import 'package:bahias_descarga_system/providers/mantenimiento.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:bahias_descarga_system/providers/bahia_provider.dart';
 import 'package:bahias_descarga_system/providers/reserva_provider.dart';
 import 'package:bahias_descarga_system/providers/auth_provider.dart';
+import 'package:bahias_descarga_system/providers/mantenimiento.dart';
 import 'package:bahias_descarga_system/models/bahia_model.dart';
 import 'package:bahias_descarga_system/widgets/custom_appbar.dart';
 import 'package:bahias_descarga_system/utils/constants.dart';
@@ -583,7 +586,6 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   void _reservarBahia(BuildContext context, Bahia bahia) {
-    Navigator.pop(context);
     Navigator.pushNamed(
       context,
       '/reservation',
@@ -591,17 +593,105 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  void _ponerEnUso(
-      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
-    try {
-      await _mostrarDialogoPonerEnUso(context, bahia, bahiaProvider);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
+  void _ponerEnUso(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    // Cerrar el bottom sheet primero
+    Navigator.pop(bottomSheetContext);
+
+    String vehiculoPlaca = '';
+    String conductorNombre = '';
+    String mercanciaTipo = '';
+
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Poner en uso Bahía ${bahia.numero}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Placa del vehículo *',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => vehiculoPlaca = value,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Nombre del conductor *',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => conductorNombre = value,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Tipo de mercancía *',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) => mercanciaTipo = value,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (vehiculoPlaca.isEmpty ||
+                  conductorNombre.isEmpty ||
+                  mercanciaTipo.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                      content: Text('❌ Todos los campos son obligatorios')),
+                );
+                return;
+              }
+
+              // Cerrar el diálogo de entrada
+              Navigator.pop(dialogContext);
+
+              try {
+                // Mostrar indicador de carga
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) =>
+                      const Center(child: CircularProgressIndicator()),
+                );
+
+                await bahiaProvider.ponerEnUso(
+                    bahia.id, vehiculoPlaca, conductorNombre, mercanciaTipo);
+
+                if (context.mounted) {
+                  Navigator.pop(context); // Cerrar indicador de carga
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Bahía puesta en uso correctamente'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context); // Cerrar indicador de carga
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _mostrarDialogoPonerEnUso(
@@ -693,25 +783,273 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  void _ponerEnMantenimiento(
-      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
-    try {
-      // Cerrar el menú de opciones primero
-      Navigator.pop(context);
+  void _ponerEnMantenimiento(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    // Cerrar el menú de opciones
+    Navigator.pop(bottomSheetContext);
 
-      await bahiaProvider.ponerEnMantenimiento(
-          bahia.id, 'Mantenimiento programado desde Admin Dashboard');
+    String? tipoSeleccionado;
+    String descripcion = '';
+    String? tecnicoResponsable;
+    String? costoStr;
+    DateTime fechaInicio = DateTime.now().add(Duration(minutes: 5));
+    DateTime fechaFinProgramada = DateTime.now().add(Duration(hours: 4));
+
+    final resultado = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogState, setDialogState) => AlertDialog(
+          title: Text('🔧 Poner en Mantenimiento - Bahía ${bahia.numero}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Tipo de mantenimiento
+                const Text('Tipo de Mantenimiento *',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Seleccione tipo',
+                  ),
+                  value: tipoSeleccionado,
+                  items: const [
+                    DropdownMenuItem(
+                        value: 'preventivo', child: Text('Preventivo')),
+                    DropdownMenuItem(
+                        value: 'correctivo', child: Text('Correctivo')),
+                  ],
+                  onChanged: (value) {
+                    setDialogState(() {
+                      tipoSeleccionado = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Descripción
+                const Text('Descripción *',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                TextField(
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Describa el mantenimiento',
+                  ),
+                  maxLines: 3,
+                  onChanged: (value) => descripcion = value.trim(),
+                ),
+                const SizedBox(height: 16),
+
+                // Técnico responsable
+                const Text('Técnico Responsable',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                TextField(
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Nombre del técnico (opcional)',
+                  ),
+                  onChanged: (value) => tecnicoResponsable = value.trim(),
+                ),
+                const SizedBox(height: 16),
+
+                // Costo estimado
+                const Text('Costo Estimado (opcional)',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                TextField(
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Ej: 1500.00',
+                    prefixText: '\$',
+                  ),
+                  keyboardType: TextInputType.number,
+                  onChanged: (value) => costoStr = value.trim(),
+                ),
+                const SizedBox(height: 16),
+
+                // Fechas
+                const Text('Fecha de Inicio',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ListTile(
+                  tileColor: Colors.grey[100],
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  leading: const Icon(Icons.calendar_today),
+                  title: Text(
+                      '${fechaInicio.day}/${fechaInicio.month}/${fechaInicio.year} ${fechaInicio.hour}:${fechaInicio.minute.toString().padLeft(2, '0')}'),
+                  trailing: const Icon(Icons.edit),
+                  onTap: () async {
+                    final fecha = await showDatePicker(
+                      context: context,
+                      initialDate: fechaInicio,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now().add(Duration(days: 90)),
+                    );
+                    if (fecha != null) {
+                      final hora = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.fromDateTime(fechaInicio),
+                      );
+                      if (hora != null) {
+                        setDialogState(() {
+                          fechaInicio = DateTime(fecha.year, fecha.month,
+                              fecha.day, hora.hour, hora.minute);
+                        });
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                const Text('Fecha Fin Programada',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ListTile(
+                  tileColor: Colors.grey[100],
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                  leading: const Icon(Icons.event),
+                  title: Text(
+                      '${fechaFinProgramada.day}/${fechaFinProgramada.month}/${fechaFinProgramada.year} ${fechaFinProgramada.hour}:${fechaFinProgramada.minute.toString().padLeft(2, '0')}'),
+                  trailing: const Icon(Icons.edit),
+                  onTap: () async {
+                    final fecha = await showDatePicker(
+                      context: context,
+                      initialDate: fechaFinProgramada,
+                      firstDate: fechaInicio,
+                      lastDate: DateTime.now().add(Duration(days: 90)),
+                    );
+                    if (fecha != null) {
+                      final hora = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.fromDateTime(fechaFinProgramada),
+                      );
+                      if (hora != null) {
+                        setDialogState(() {
+                          fechaFinProgramada = DateTime(fecha.year, fecha.month,
+                              fecha.day, hora.hour, hora.minute);
+                        });
+                      }
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                // Validaciones
+                if (tipoSeleccionado == null) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            '❌ Debe seleccionar un tipo de mantenimiento')),
+                  );
+                  return;
+                }
+
+                if (descripcion.isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                        content: Text('❌ Debe ingresar una descripción')),
+                  );
+                  return;
+                }
+
+                if (fechaFinProgramada.isBefore(fechaInicio)) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            '❌ La fecha de fin debe ser posterior a la de inicio')),
+                  );
+                  return;
+                }
+
+                // Cerrar diálogo de entrada
+                Navigator.pop(dialogContext, true);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+              child: const Text('Programar Mantenimiento'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // Si canceló, salir
+    if (resultado != true) return;
+
+    try {
+      // Mostrar indicador de carga
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (loadingContext) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Programando mantenimiento...',
+                style: TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Parsear costo (opcional)
+      double? costo;
+      if (costoStr != null && costoStr!.isNotEmpty) {
+        costo = double.tryParse(costoStr!);
+      }
+
+      // Usar MantenimientoProvider para crear el mantenimiento
+      final mantenimientoProvider =
+          Provider.of<MantenimientoProvider>(context, listen: false);
+
+      await mantenimientoProvider.crearMantenimiento(
+        bahia.id,
+        tipoSeleccionado!,
+        descripcion,
+        fechaInicio,
+        fechaFinProgramada,
+        tecnicoResponsable: tecnicoResponsable,
+        costo: costo,
+        observaciones: 'Mantenimiento programado desde Admin Dashboard',
+      );
+
+      // Recargar bahías
+      await bahiaProvider.cargarBahias();
 
       if (context.mounted) {
+        Navigator.pop(context); // Cerrar indicador de carga
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Bahía puesta en mantenimiento correctamente')),
+            content: Text('✅ Mantenimiento programado correctamente'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (context.mounted) {
+        Navigator.pop(context); // Cerrar indicador de carga
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('❌ Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -812,11 +1150,11 @@ class _AdminDashboardState extends State<AdminDashboard>
         title: Text(titulo),
         content: TextField(
           decoration: const InputDecoration(
-            hintText: 'Escriba aquí...',
+            hintText: 'Escriba aquí el motivo...',
             border: OutlineInputBorder(),
           ),
           maxLines: 3,
-          onChanged: (value) => texto = value,
+          onChanged: (value) => texto = value.trim(),
           autofocus: true,
         ),
         actions: [
@@ -833,37 +1171,78 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  void _liberarBahia(
-      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
+  void _liberarBahia(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    // Cerrar el bottom sheet primero
+    Navigator.pop(bottomSheetContext);
+
+    // Mostrar confirmación
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Confirmar liberación'),
+        content: Text(
+            '¿Está seguro de liberar la Bahía ${bahia.numero}?\n\nEsto completará la reserva activa.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Sí, liberar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
     try {
-      // Cerrar el menú de opciones primero
-      Navigator.pop(context);
+      // Mostrar indicador de carga
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
 
       await bahiaProvider.liberarBahia(bahia.id);
 
       if (context.mounted) {
+        Navigator.pop(context); // Cerrar indicador de carga
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Bahía liberada correctamente')),
+          const SnackBar(
+            content: Text('✅ Bahía liberada correctamente'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (context.mounted) {
+        Navigator.pop(context); // Cerrar indicador de carga
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('❌ Error: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
   }
 
-  void _cancelarReservaBahia(
-      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) async {
-    // Mostrar confirmación antes de cancelar
+  void _cancelarReservaBahia(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    // Cerrar el bottom sheet primero
+    Navigator.pop(bottomSheetContext);
+
+    // Mostrar confirmación
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Confirmar cancelación'),
         content: Text(
-            '¿Está seguro de cancelar la reserva de la Bahía ${bahia.numero}?'),
+            '¿Está seguro de cancelar la reserva de la Bahía ${bahia.numero}?\n\nEsta acción no se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -881,22 +1260,32 @@ class _AdminDashboardState extends State<AdminDashboard>
     if (confirmar != true) return;
 
     try {
-      // Cerrar el menú de opciones
-      if (context.mounted) {
-        Navigator.pop(context);
-      }
+      // Mostrar indicador de carga
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
 
       await bahiaProvider.cancelarReservaBahia(bahia.id);
 
       if (context.mounted) {
+        Navigator.pop(context); // Cerrar indicador de carga
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Reserva cancelada correctamente')),
+          const SnackBar(
+            content: Text('✅ Reserva cancelada correctamente'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (context.mounted) {
+        Navigator.pop(context); // Cerrar indicador de carga
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('❌ Error: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1401,121 +1790,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  void _mostrarOpcionesBahia(
-      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return SafeArea(
-          child: Container(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 8, bottom: 16),
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[400],
-                    borderRadius: BorderRadius.circular(2.5),
-                  ),
-                ),
-                Text(
-                  'Bahía ${bahia.numero} - ${bahia.nombreTipo}',
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Estado: ${bahia.nombreEstado}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: bahia.colorEstado,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (bahia.estado == EstadoBahia.libre) ...[
-                  _buildBotonOpcion(
-                    'Reservar Bahía',
-                    Icons.calendar_today,
-                    Colors.blue,
-                    () => _reservarBahia(context, bahia),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildBotonOpcion(
-                    'Poner en Uso',
-                    Icons.local_shipping,
-                    Colors.orange,
-                    () => _ponerEnUso(context, bahia, bahiaProvider),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildBotonOpcion(
-                    'Poner en Mantenimiento',
-                    Icons.build,
-                    Colors.blueGrey,
-                    () => _ponerEnMantenimiento(context, bahia, bahiaProvider),
-                  ),
-                ],
-                if (bahia.estado == EstadoBahia.mantenimiento) ...[
-                  _buildBotonOpcion(
-                    'Liberar de Mantenimiento',
-                    Icons.check_circle,
-                    Colors.green,
-                    () =>
-                        _liberarDeMantenimiento(context, bahia, bahiaProvider),
-                  ),
-                ],
-                if (bahia.estado == EstadoBahia.reservada) ...[
-                  _buildBotonOpcion(
-                    'Cancelar Reserva',
-                    Icons.cancel,
-                    Colors.red,
-                    () => _cancelarReservaBahia(context, bahia, bahiaProvider),
-                  ),
-                  const SizedBox(height: 8),
-                  _buildBotonOpcion(
-                    'Poner en Uso',
-                    Icons.local_shipping,
-                    Colors.orange,
-                    () => _ponerEnUso(context, bahia, bahiaProvider),
-                  ),
-                ],
-                if (bahia.estado == EstadoBahia.enUso) ...[
-                  _buildBotonOpcion(
-                    'Liberar Bahía',
-                    Icons.check_circle,
-                    Colors.green,
-                    () => _liberarBahia(context, bahia, bahiaProvider),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                _buildBotonOpcion(
-                  'Ver Detalles',
-                  Icons.info,
-                  Colors.grey,
-                  () => _mostrarDetallesCompletosBahia(context, bahia),
-                ),
-                const SizedBox(height: 8),
-                _buildBotonOpcion(
-                  'Cancelar',
-                  Icons.close,
-                  Colors.grey,
-                  () => Navigator.pop(context),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildBahiaAdminCard(Bahia bahia, BahiaProvider bahiaProvider) {
     // Determinar texto legible según el estado del enum
     String estadoTexto;
@@ -1602,6 +1876,700 @@ class _AdminDashboardState extends State<AdminDashboard>
         ),
       ),
     );
+  }
+
+  void _mostrarOpcionesBahia(
+      BuildContext context, Bahia bahia, BahiaProvider bahiaProvider) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (bottomSheetContext) {
+        return SafeArea(
+          child: Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 16),
+                  width: 40,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2.5),
+                  ),
+                ),
+                Text(
+                  'Bahía ${bahia.numero} - ${bahia.nombreTipo}',
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Estado: ${bahia.nombreEstado}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: bahia.colorEstado,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ✅ OPCIONES PARA BAHÍA LIBRE
+                if (bahia.estado == EstadoBahia.libre) ...[
+                  _buildBotonOpcion(
+                    'Reservar Bahía',
+                    Icons.calendar_today,
+                    Colors.blue,
+                    () {
+                      Navigator.pop(bottomSheetContext);
+                      _reservarBahia(context, bahia);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Uso Inmediato',
+                    Icons.local_shipping,
+                    Colors.orange,
+                    () {
+                      Navigator.pop(
+                          bottomSheetContext); // Cerrar bottom sheet primero
+                      _ponerEnUsoInmediato(context, bahia, bahiaProvider);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Poner en Mantenimiento',
+                    Icons.build,
+                    Colors.blueGrey,
+                    () => _ponerEnMantenimiento(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                ],
+
+                // ✅ OPCIONES PARA BAHÍA EN MANTENIMIENTO
+                if (bahia.estado == EstadoBahia.mantenimiento) ...[
+                  _buildBotonOpcion(
+                    'Completar Mantenimiento',
+                    Icons.check_circle,
+                    Colors.green,
+                    () => _liberarDeMantenimiento(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                ],
+
+                // ✅ OPCIONES PARA BAHÍA RESERVADA
+                if (bahia.estado == EstadoBahia.reservada) ...[
+                  _buildBotonOpcion(
+                    'Poner en Uso (Iniciar)',
+                    Icons.play_arrow,
+                    Colors.blue,
+                    () => _iniciarUsoDesdeReserva(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Cancelar Reserva (Solo futuras)',
+                    Icons.cancel,
+                    Colors.red,
+                    () => _cancelarReservaConValidacion(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Forzar Liberación',
+                    Icons.lock_open,
+                    Colors.orange,
+                    () => _forzarLiberacionBahia(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                ],
+
+                // ✅ OPCIONES PARA BAHÍA EN USO
+                if (bahia.estado == EstadoBahia.enUso) ...[
+                  _buildBotonOpcion(
+                    'Completar y Liberar',
+                    Icons.check_circle,
+                    Colors.green,
+                    () => _completarYLiberar(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildBotonOpcion(
+                    'Forzar Liberación',
+                    Icons.lock_open,
+                    Colors.orange,
+                    () => _forzarLiberacionBahia(
+                        bottomSheetContext, bahia, bahiaProvider),
+                  ),
+                ],
+
+                const SizedBox(height: 16),
+                _buildBotonOpcion(
+                  'Ver Detalles',
+                  Icons.info,
+                  Colors.grey,
+                  () {
+                    Navigator.pop(bottomSheetContext);
+                    _mostrarDetallesCompletosBahia(context, bahia);
+                  },
+                ),
+                const SizedBox(height: 8),
+                _buildBotonOpcion(
+                  'Cerrar',
+                  Icons.close,
+                  Colors.grey,
+                  () => Navigator.pop(bottomSheetContext),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _iniciarUsoDesdeReserva(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    Navigator.pop(bottomSheetContext);
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('🚀 Iniciar Uso'),
+        content: Text('La Bahía ${bahia.numero} está reservada.\n\n'
+            '¿Desea cambiar su estado a "En Uso"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Sí, iniciar uso'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (loadingContext) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Cambiando estado a En Uso...',
+                style: TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await bahiaProvider.iniciarUsoDesdeBahiaReservada(bahia.id);
+
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Bahía puesta en uso correctamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+// ========================================
+// 4. MÉTODO: Cancelar reserva con validación
+// ========================================
+
+  void _cancelarReservaConValidacion(BuildContext bottomSheetContext,
+      Bahia bahia, BahiaProvider bahiaProvider) async {
+    Navigator.pop(bottomSheetContext);
+
+    // Mostrar advertencia
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('⚠️ Cancelar Reserva'),
+        content: const Text(
+            'IMPORTANTE: Solo se pueden cancelar reservas que AÚN NO han comenzado.\n\n'
+            'Si la reserva ya inició, use "Forzar Liberación" en su lugar.\n\n'
+            '¿Desea intentar cancelar esta reserva?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Sí, intentar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      await bahiaProvider.cancelarReservaBahia(bahia.id);
+
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Reserva cancelada correctamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+
+        String mensajeError = e.toString();
+
+        // Ofrecer alternativa si ya comenzó
+        if (mensajeError.contains('ya ha comenzado') ||
+            mensajeError.contains('ya inició')) {
+          final usarForzar = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('⚠️ Reserva ya comenzó'),
+              content:
+                  const Text('Esta reserva ya inició y no puede cancelarse.\n\n'
+                      '¿Desea forzar la liberación de la bahía?\n'
+                      'Esto completará la reserva inmediatamente.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('No'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style:
+                      ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                  child: const Text('Sí, forzar liberación'),
+                ),
+              ],
+            ),
+          );
+
+          if (usarForzar == true) {
+            _forzarLiberacionBahiaDirecto(bahia, bahiaProvider);
+          }
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ $mensajeError'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _ponerEnUsoInmediato(BuildContext parentContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    String vehiculoPlaca = '';
+    String conductorNombre = '';
+    String mercanciaTipo = '';
+
+    final resultado = await showDialog<bool>(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('🚚 Poner en Uso - Bahía ${bahia.numero}'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Complete los datos del vehículo:',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Placa del vehículo *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.directions_car),
+                ),
+                onChanged: (value) => vehiculoPlaca = value.trim(),
+                textCapitalization: TextCapitalization.characters,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Nombre del conductor *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.person),
+                ),
+                onChanged: (value) => conductorNombre = value.trim(),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Tipo de mercancía *',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.inventory_2),
+                ),
+                onChanged: (value) => mercanciaTipo = value.trim(),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (vehiculoPlaca.isEmpty ||
+                  conductorNombre.isEmpty ||
+                  mercanciaTipo.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('❌ Todos los campos son obligatorios'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              } else {
+                Navigator.pop(dialogContext, true);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            child: const Text('Poner en Uso'),
+          ),
+        ],
+      ),
+    );
+
+    if (resultado != true) return;
+
+    try {
+      showDialog(
+        context: parentContext,
+        barrierDismissible: false,
+        builder: (loadingContext) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Poniendo bahía en uso...',
+                style: TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      await bahiaProvider.ponerEnUsoMejorado(
+          bahia.id, vehiculoPlaca, conductorNombre, mercanciaTipo);
+
+      if (parentContext.mounted) {
+        Navigator.pop(parentContext); // Cerrar loading
+        ScaffoldMessenger.of(parentContext).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Bahía puesta en uso correctamente'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (parentContext.mounted) {
+        Navigator.pop(parentContext);
+        ScaffoldMessenger.of(parentContext).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  void _completarYLiberar(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    Navigator.pop(bottomSheetContext);
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('✅ Completar Uso'),
+        content: Text(
+            '¿Confirma que desea completar el uso de la Bahía ${bahia.numero}?\n\n'
+            'La bahía quedará libre inmediatamente.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+            child: const Text('Sí, completar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Completando uso y liberando...\nBuscando reserva activa...',
+                style: TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Intentar con el método mejorado primero
+      bool exitoso = false;
+      try {
+        await bahiaProvider.liberarBahiaMejorado(bahia.id);
+        exitoso = true;
+      } catch (e) {
+        print('⚠️ Método mejorado falló, intentando forzar liberación: $e');
+      }
+
+      // Si falló, usar forzar liberación
+      if (!exitoso) {
+        try {
+          await bahiaProvider.forzarLiberacionCompleta(bahia.id);
+          exitoso = true;
+        } catch (e) {
+          print('❌ Forzar liberación también falló: $e');
+        }
+      }
+
+      if (context.mounted) {
+        Navigator.pop(context);
+
+        if (exitoso) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Bahía liberada correctamente'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } else {
+          // Ofrecer alternativa
+          final usarForzar = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('⚠️ No se pudo liberar automáticamente'),
+              content: const Text(
+                  'No se encontró una reserva activa para completar.\n\n'
+                  '¿Desea usar "Forzar Liberación" en su lugar?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('No'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style:
+                      ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                  child: const Text('Sí, forzar'),
+                ),
+              ],
+            ),
+          );
+
+          if (usarForzar == true) {
+            _forzarLiberacionBahiaDirecto(bahia, bahiaProvider);
+          }
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+
+        // Si falla, ofrecer forzar liberación
+        final usarForzar = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('⚠️ Error al liberar'),
+            content: Text('Error: ${e.toString()}\n\n'
+                '¿Desea forzar la liberación de la bahía?\n'
+                'Esto cambiará el estado directamente a "Libre".'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('No'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                child: const Text('Sí, forzar'),
+              ),
+            ],
+          ),
+        );
+
+        if (usarForzar == true) {
+          _forzarLiberacionBahiaDirecto(bahia, bahiaProvider);
+        }
+      }
+    }
+  }
+
+  void _forzarLiberacionBahia(BuildContext bottomSheetContext, Bahia bahia,
+      BahiaProvider bahiaProvider) async {
+    Navigator.pop(bottomSheetContext);
+
+    await _forzarLiberacionBahiaDirecto(bahia, bahiaProvider);
+  }
+
+  Future<void> _forzarLiberacionBahiaDirecto(
+      Bahia bahia, BahiaProvider bahiaProvider) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('⚠️ Forzar Liberación'),
+        content: Text(
+            '¿Está seguro de forzar la liberación de la Bahía ${bahia.numero}?\n\n'
+            'Estado actual: ${bahia.nombreEstado}\n\n'
+            'Esta acción:\n'
+            '• Completará cualquier reserva activa\n'
+            '• Cambiará el estado a "Libre"\n'
+            '• No se puede deshacer\n\n'
+            'Use esta opción solo cuando sea necesario.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
+            child: const Text('Sí, forzar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text(
+                'Forzando liberación completa...\nCompletando reservas y mantenimientos...',
+                style: TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // Usar el método de liberación completa
+      bool liberacionExitosa = false;
+      String ultimoError = '';
+
+      try {
+        print('🔄 Usando método de liberación completa...');
+        await bahiaProvider.forzarLiberacionCompleta(bahia.id);
+        liberacionExitosa = true;
+        print('✅ Liberación completa exitosa');
+      } catch (e) {
+        ultimoError = e.toString();
+        print('❌ Liberación completa falló: $ultimoError');
+      }
+
+      if (context.mounted) {
+        Navigator.pop(context);
+
+        if (liberacionExitosa) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Bahía liberada correctamente'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ No se pudo liberar automáticamente.\n\n'
+                  'Error: $ultimoError\n\n'
+                  'Intente completar manualmente desde el sistema.'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 8),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error crítico: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildReservasTab(

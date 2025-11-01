@@ -1,3 +1,4 @@
+import 'package:bahias_descarga_system/providers/UsuarioProvider.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -7,6 +8,7 @@ import 'package:bahias_descarga_system/providers/auth_provider.dart';
 import 'package:bahias_descarga_system/providers/reserva_provider.dart';
 import 'package:bahias_descarga_system/providers/mantenimiento.dart';
 import 'package:bahias_descarga_system/providers/bahia_provider.dart';
+
 // Screens
 import 'package:bahias_descarga_system/screens/auth/login_screen.dart';
 import 'package:bahias_descarga_system/screens/auth/register_screen.dart';
@@ -41,6 +43,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => BahiaProvider()),
         ChangeNotifierProvider(create: (_) => ReservaProvider()),
         ChangeNotifierProvider(create: (_) => MantenimientoProvider()),
+        ChangeNotifierProvider(create: (_) => UsuarioProvider()), // ✅ NUEVO
       ],
       child: MaterialApp(
         title: 'Sistema de Bahías de Descarga',
@@ -65,7 +68,7 @@ class MyApp extends StatelessWidget {
           '/reservation': (context) => const ReservationScreen(),
           '/profile': (context) => const ProfileScreen(),
           '/reports': (context) => const UsageReportScreen(),
-          '/admin': (context) => const AdminDashboard(), // ✅ Corregido
+          '/admin': (context) => const AdminDashboard(),
           '/planificador': (context) => const PlanificadorDashboard(),
           '/supervisor': (context) => const SupervisorDashboard(),
           '/admin-ti': (context) => const AdminTIDashboard(),
@@ -115,15 +118,29 @@ class _AuthWrapperState extends State<AuthWrapper> {
         Provider.of<ReservaProvider>(context, listen: false);
     final mantenimientoProvider =
         Provider.of<MantenimientoProvider>(context, listen: false);
+    final usuarioProvider =
+        Provider.of<UsuarioProvider>(context, listen: false); // ✅ NUEVO
 
+    // Configurar tokens
     bahiaProvider.setToken(token);
     reservaProvider.setToken(token);
     mantenimientoProvider.setToken(token);
+    usuarioProvider.setToken(token); // ✅ NUEVO
 
+    // Cargar datos iniciales
     Future.microtask(() async {
       try {
         await bahiaProvider.cargarBahias();
         await reservaProvider.cargarReservas();
+        // ✅ NUEVO: Cargar usuarios solo si es admin o admin TI
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        if (authProvider.usuario != null) {
+          final tipoUsuario = authProvider.usuario!.tipo;
+          if (tipoUsuario == TipoUsuario.administrador ||
+              tipoUsuario == TipoUsuario.administradorTI) {
+            await usuarioProvider.cargarUsuarios();
+          }
+        }
       } catch (e) {
         print('Error cargando datos iniciales: $e');
       }
@@ -154,8 +171,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
           if (usuario != null) {
             switch (usuario.tipo) {
               case TipoUsuario.administrador:
+                return const AdminDashboard();
               case TipoUsuario.administradorTI:
-                return const AdminDashboard(); // ✅ Corregido
+                return const AdminTIDashboard(); // ✅ Admin TI tiene su propio dashboard
               case TipoUsuario.planificador:
                 return const PlanificadorDashboard();
               case TipoUsuario.supervisor:
